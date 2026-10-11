@@ -1,0 +1,13 @@
+requests>=2.31
+pyserial>=3.5
+pystray>=0.19.5
+Pillow>=10.0
+meshcore>=1.1.0
+
+# Optional: read Meshtastic devices too (in addition to MeshCore).
+#   pip install meshtastic
+meshtastic>=2.3
+
+# Optional: a native desktop window for the dashboard instead of a browser tab.
+# If not installed, the dashboard opens in your default browser (fully supported).
+#   pip install pywebview

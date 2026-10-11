@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# Virtual env
+.venv/
+venv/
+
+# PyInstaller
+build/
+dist/
+*.manifest
+
+# Local secrets / runtime
+config.json
+*.log
+*.uf2
+
+# OS / editor
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/

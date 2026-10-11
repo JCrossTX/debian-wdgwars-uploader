@@ -1,0 +1,817 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WDGWars Uploader</title>
+<style>
+:root{
+  --bg:#05070a; --bg2:#0a0f16; --panel:#0b1119cc;
+  --cyan:#00e5ff; --cyan-dim:#0a8fa3; --mag:#ff2d95; --amber:#ffb300;
+  --green:#25f4a7; --red:#ff4d5e; --txt:#c7d6e5; --muted:#5f7285;
+  --grid:rgba(0,229,255,.05); --line:#1a2634;
+}
+*{box-sizing:border-box}
+/* themed scrollbars (Firefox + WebKit/Blink) */
+*{scrollbar-width:thin;scrollbar-color:#0b6f7e transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:#070c12;border-radius:8px}
+::-webkit-scrollbar-thumb{background:linear-gradient(180deg,var(--cyan-dim),#0b6f7e);border-radius:8px;
+  border:2px solid #070c12;box-shadow:inset 0 0 4px rgba(0,229,255,.4)}
+::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,var(--cyan),#14b9cf);
+  box-shadow:0 0 8px rgba(0,229,255,.6),inset 0 0 4px rgba(0,229,255,.6)}
+::-webkit-scrollbar-corner{background:transparent}
+html,body{margin:0;height:100%}
+body{
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(255,45,149,.08), transparent 60%),
+    radial-gradient(1000px 700px at -10% 110%, rgba(0,229,255,.08), transparent 55%),
+    var(--bg);
+  color:var(--txt);
+  font-family:ui-monospace,"Cascadia Code","JetBrains Mono",Consolas,monospace;
+  font-size:13px; line-height:1.5; overflow-x:hidden;
+}
+body::before{ /* scanline grid */
+  content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:34px 34px; mask:linear-gradient(180deg,transparent,#000 30%,#000 70%,transparent);
+}
+.wrap{position:relative; z-index:1; max-width:1400px; margin:0 auto; padding:18px 20px 60px}
+a{color:var(--cyan); text-decoration:none} a:hover{text-decoration:underline}
+
+/* header */
+header{display:flex; align-items:center; gap:16px; margin-bottom:18px; flex-wrap:wrap}
+.brand{display:flex; align-items:center; gap:12px}
+.logo{width:40px;height:40px;border:2px solid var(--cyan);border-radius:50%;position:relative;
+  box-shadow:0 0 18px rgba(0,229,255,.4),inset 0 0 12px rgba(0,229,255,.25)}
+.logo::before{content:"";position:absolute;inset:7px;border:2px solid var(--cyan);border-radius:50%;opacity:.5}
+.logo::after{content:"";position:absolute;left:50%;top:50%;width:16px;height:2px;background:var(--cyan);
+  transform-origin:left;animation:sweep 3s linear infinite;box-shadow:0 0 8px var(--cyan)}
+@keyframes sweep{to{transform:rotate(360deg)}}
+h1{font-size:20px;letter-spacing:3px;margin:0;font-weight:700;
+  background:linear-gradient(90deg,var(--cyan),var(--mag));-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{color:var(--muted);letter-spacing:1px;font-size:11px}
+.spacer{flex:1}
+.hstat{display:flex;flex-direction:column;align-items:flex-end;font-size:11px;color:var(--muted)}
+.hstat b{color:var(--cyan);font-size:14px;letter-spacing:1px}
+
+/* layout */
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px}
+.card{grid-column:span 12;background:linear-gradient(180deg,var(--bg2),#070b11);
+  border:1px solid var(--line);border-radius:10px;padding:14px 16px;position:relative;overflow:hidden}
+.card::before{content:"";position:absolute;top:0;left:0;width:26px;height:2px;background:var(--cyan);box-shadow:0 0 10px var(--cyan)}
+.card::after{content:"";position:absolute;top:0;left:0;width:2px;height:26px;background:var(--cyan);box-shadow:0 0 10px var(--cyan)}
+.card h2{font-size:11px;letter-spacing:2px;color:var(--muted);margin:0 0 12px;text-transform:uppercase;font-weight:600}
+.col-4{grid-column:span 4}.col-6{grid-column:span 6}.col-8{grid-column:span 8}.col-3{grid-column:span 3}
+@media(max-width:1000px){.col-4,.col-6,.col-8,.col-3{grid-column:span 12}}
+
+/* device chips */
+.devs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@media(max-width:1300px){.devs{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.devs{grid-template-columns:1fr}}
+.dev{min-width:0;border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:flex;gap:10px;align-items:center}
+.dot{width:11px;height:11px;border-radius:50%;background:var(--muted);flex:none;box-shadow:0 0 0 rgba(0,0,0,0)}
+.dot.on{background:var(--green);box-shadow:0 0 10px var(--green);animation:pulse 2s infinite}
+.dot.warn{background:var(--amber);box-shadow:0 0 10px var(--amber)}
+.dot.off{background:var(--red);box-shadow:0 0 8px var(--red)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+.dev .n{font-weight:700;color:#dfe} .dev .d{font-size:11px;color:var(--muted);overflow-wrap:anywhere}
+
+/* counters */
+.counters{display:flex;gap:14px}
+.counter{flex:1;text-align:center;border:1px solid var(--line);border-radius:10px;padding:16px 10px;position:relative;
+  background:radial-gradient(circle at 50% 0,rgba(0,229,255,.06),transparent 70%)}
+.counter.mag{background:radial-gradient(circle at 50% 0,rgba(255,45,149,.07),transparent 70%)}
+.counter .num{font-size:52px;font-weight:800;line-height:1;letter-spacing:2px;color:var(--cyan);
+  text-shadow:0 0 20px rgba(0,229,255,.5);font-variant-numeric:tabular-nums}
+.counter.mag .num{color:var(--mag);text-shadow:0 0 20px rgba(255,45,149,.5)}
+.counter .lbl{margin-top:8px;font-size:11px;letter-spacing:2px;color:var(--muted);text-transform:uppercase}
+.counter .sess{font-size:10px;color:var(--muted);margin-top:4px}
+.burst{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;
+  color:var(--green);text-shadow:0 0 16px var(--green);opacity:0;pointer-events:none}
+.burst.show{animation:burst 1.4s ease-out}
+@keyframes burst{0%{opacity:0;transform:scale(.6)}20%{opacity:1;transform:scale(1.1)}80%{opacity:1}100%{opacity:0;transform:scale(1)}}
+
+/* upload button */
+.uploadbar{display:flex;gap:12px;align-items:center;margin-top:14px;flex-wrap:wrap}
+.btn{background:linear-gradient(90deg,var(--cyan-dim),#0b6f7e);color:#001318;border:1px solid var(--cyan);
+  padding:12px 22px;border-radius:8px;font-family:inherit;font-weight:800;letter-spacing:2px;cursor:pointer;
+  text-transform:uppercase;font-size:13px;box-shadow:0 0 18px rgba(0,229,255,.25);transition:.15s}
+.btn:hover{background:linear-gradient(90deg,var(--cyan),#14b9cf);box-shadow:0 0 26px rgba(0,229,255,.5);transform:translateY(-1px)}
+.btn:active{transform:translateY(0)}
+.btn:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
+.btn.ghost{background:transparent;color:var(--cyan);box-shadow:none}
+.btn.ghost:hover{background:rgba(0,229,255,.08)}
+.btn.mag{background:linear-gradient(90deg,#9c1c5c,#6f1444);border-color:var(--mag);color:#ffd9ec;box-shadow:0 0 18px rgba(255,45,149,.25)}
+.next{color:var(--muted);font-size:12px}
+.next b{color:var(--cyan)}
+select,input{background:#070c12;border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:8px 10px;font-family:inherit;font-size:12px}
+select:focus,input:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 8px rgba(0,229,255,.3)}
+
+/* feed */
+.feeds{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+@media(max-width:1200px){.feeds{grid-template-columns:1fr 1fr}}
+@media(max-width:800px){.feeds{grid-template-columns:1fr}}
+.feedhdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;
+  font-size:12px;letter-spacing:1px;font-weight:600}
+.gpsnote{font-size:10px;color:var(--muted);letter-spacing:0;font-weight:400}
+.incount{font-size:24px;font-weight:800;line-height:1;color:currentColor;text-shadow:0 0 12px currentColor;
+  font-variant-numeric:tabular-nums}
+.feedcol-div{border-left:1px solid var(--line);padding-left:16px}
+@media(max-width:800px){.feedcol-div{border-left:none;padding-left:0;border-top:1px solid var(--line);padding-top:12px}}
+.feed{max-height:320px;overflow:auto}
+.feed table{width:100%;border-collapse:collapse;font-size:12px}
+.feed th{position:sticky;top:0;z-index:3;background:#0a1017;text-align:left;color:var(--muted);font-weight:600;
+  padding:6px 8px;font-size:10px;letter-spacing:1px;text-transform:uppercase;border-bottom:1px solid var(--line);
+  box-shadow:0 1px 0 var(--line)}
+.feed td{padding:6px 8px;border-bottom:1px solid #0e1620;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px}
+.feed tr.new td{animation:row 1.6s ease-out}
+@keyframes row{0%{background:rgba(0,229,255,.18)}100%{background:transparent}}
+.tag{display:inline-block;padding:1px 7px;border-radius:20px;font-size:10px;border:1px solid currentColor}
+.tag.rep{color:var(--cyan)} .tag.comp{color:var(--green)} .tag.room{color:var(--mag)} .tag.sensor{color:var(--amber)}
+.feed tr.nogps td{opacity:.5}
+.feed tr.nogps td:first-child{opacity:.72}
+.await{color:var(--muted);font-style:italic;font-size:11px}
+.feed td.thumb{width:50px;padding:3px 4px}
+.acthumb{width:46px;height:28px;object-fit:cover;border-radius:4px;border:1px solid var(--line);background:#0a1017;display:block}
+.acthumb.none{display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px}
+.empty{color:var(--muted);padding:24px;text-align:center;font-size:12px}
+
+/* stats */
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px}
+.kv .k{color:var(--muted);font-size:11px} .kv .v{color:#dfe;font-weight:700;text-align:right}
+.big-total{font-size:30px;font-weight:800;color:var(--cyan);text-shadow:0 0 14px rgba(0,229,255,.4);letter-spacing:1px}
+.badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.badge{font-size:10px;border:1px solid var(--line);border-radius:20px;padding:2px 9px;color:var(--muted)}
+.pill{display:inline-block;border:1px solid var(--mag);color:var(--mag);border-radius:20px;padding:1px 10px;font-size:11px}
+
+/* leaderboard */
+.tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+.tab{padding:5px 12px;border:1px solid var(--line);border-radius:6px;cursor:pointer;font-size:11px;letter-spacing:1px;color:var(--muted)}
+.tab.active{color:var(--cyan);border-color:var(--cyan);background:rgba(0,229,255,.07)}
+.lb{width:100%;border-collapse:collapse;font-size:12px}
+.lb td{padding:5px 8px;border-bottom:1px solid #0e1620}
+.lb .rank{color:var(--muted);width:26px}
+.lb .me{color:var(--cyan);font-weight:800}
+.lb .val{text-align:right;color:#dfe;font-weight:700}
+
+/* prereqs */
+.checks{display:flex;flex-direction:column;gap:8px}
+.chk{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.chk .s{font-weight:700;color:#dfe}.chk .m{font-size:11px;color:var(--muted)}
+.chk .fix{font-size:11px;color:var(--amber);margin-top:3px}
+
+/* events ticker */
+.events{font-size:11px;color:var(--muted);max-height:120px;overflow:auto}
+#card-activity{display:flex;flex-direction:column;min-height:0}
+/* Bound the ticker so it scrolls in place instead of stretching the whole row
+   taller than its neighbours as history grows. */
+#card-activity .events{flex:1 1 auto;min-height:0;max-height:440px;overflow-y:auto}
+.events div{padding:2px 0;border-bottom:1px dashed #0e1620}
+.events .t{color:var(--cyan-dim)}
+
+/* settings */
+.form{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:700px){.form{grid-template-columns:1fr}}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:11px;color:var(--muted);letter-spacing:1px}
+.field .row{display:flex;gap:8px}
+.field input{width:100%}
+.switch{display:flex;align-items:center;gap:8px;font-size:12px}
+.devrow{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+.devrow .d-port{width:130px}
+.devrow .d-rm{padding:5px 10px}
+.msg{font-size:12px;margin-left:8px}
+.msg.ok{color:var(--green)} .msg.err{color:var(--red)}
+/* detail modal */
+.feed tr{cursor:pointer}
+.feed tr:hover td{background:rgba(0,229,255,.06)}
+.modal{position:fixed;inset:0;z-index:60;background:rgba(2,4,7,.72);backdrop-filter:blur(4px);
+  display:none;align-items:center;justify-content:center}
+.modal.show{display:flex;animation:fade .2s ease}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.sheet{width:420px;max-width:94vw;max-height:88vh;overflow:auto;background:linear-gradient(180deg,#0b1119,#070b11);
+  border:1px solid var(--cyan);border-radius:14px;box-shadow:0 0 40px rgba(0,229,255,.25);position:relative}
+.sheet.mag{border-color:var(--mag);box-shadow:0 0 40px rgba(255,45,149,.25)}
+.sheet .hd{padding:16px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#0b1119ee;backdrop-filter:blur(6px)}
+.sheet .hd h2{margin:0;font-size:20px;letter-spacing:1px;color:var(--cyan);text-transform:none}
+.sheet.mag .hd h2{color:var(--mag)}
+.sheet .hd .sub{color:var(--muted);font-size:12px;margin-top:2px}
+.sheet .bd{padding:16px 18px}
+.sheet img.photo{width:100%;border-radius:10px;border:1px solid var(--line);margin-bottom:12px}
+.sheet .kv2{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13px}
+.sheet .kv2 .k{color:var(--muted)} .sheet .kv2 .v{text-align:right;color:#dfe;font-weight:600}
+.sheet .route{margin-top:12px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;
+  display:flex;align-items:center;justify-content:space-between;color:var(--cyan)}
+.sheet .route .ap{font-size:18px;font-weight:800} .sheet .route .arrow{color:var(--muted)}
+.sheet .cred{color:var(--muted);font-size:11px;margin-top:8px}
+.sheet .x{position:absolute;top:12px;right:14px;cursor:pointer;color:var(--muted);font-size:22px;line-height:1;z-index:2}
+.sheet .x:hover{color:var(--cyan)}
+.sheet .maplink{display:inline-block;margin-top:12px;color:var(--cyan);border:1px solid var(--cyan);
+  border-radius:8px;padding:7px 14px;text-decoration:none;font-size:12px}
+.sheet .maplink:hover{background:rgba(0,229,255,.1)}
+.sheet .spin{color:var(--muted);font-size:12px;padding:8px 0}
+.tag2{display:inline-block;padding:2px 10px;border-radius:20px;font-size:11px;border:1px solid currentColor}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:50;
+  background:#0a141c;border:1px solid var(--cyan);color:var(--cyan);padding:10px 18px;border-radius:8px;
+  box-shadow:0 0 22px rgba(0,229,255,.35);opacity:0;transition:.3s;letter-spacing:1px}
+.toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="logo"></div>
+      <div>
+        <h1>WDGWARS UPLOADER</h1>
+        <div class="sub">ADS-B // MESH // LIVE TELEMETRY</div>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <div class="hstat"><span>OPERATOR</span><b id="op-name">—</b></div>
+    <div class="hstat"><span>UPTIME</span><b id="uptime">—</b></div>
+    <div class="hstat"><span>LINK</span><b id="link">…</b></div>
+  </header>
+
+  <div class="grid">
+    <!-- devices -->
+    <div class="card col-8">
+      <h2>Hardware</h2>
+      <div class="devs">
+        <div class="dev"><div class="dot" id="d-sdr"></div><div><div class="n">RTL-SDR</div><div class="d" id="d-sdr-t">scanning…</div></div></div>
+        <div class="dev"><div class="dot" id="d-pp"></div><div><div class="n">PortaPack</div><div class="d" id="d-pp-t">scanning…</div></div></div>
+        <div class="dev"><div class="dot" id="d-mesh"></div><div><div class="n" id="d-mesh-n">Mesh</div><div class="d" id="d-mesh-t">scanning…</div></div></div>
+        <div class="dev"><div class="dot on"></div><div><div class="n">Uploader</div><div class="d" id="d-up">idle</div></div></div>
+      </div>
+      <div class="uploadbar">
+        <button class="btn" id="btn-upload">▲ Upload now</button>
+        <button class="btn ghost" id="btn-rescan">⟳ Rescan</button>
+        <button class="btn ghost" id="btn-map">🗺 Live map</button>
+        <span class="next" id="nextrun">next auto-upload: —</span>
+        <span class="spacer"></span>
+        <label class="next">Interval
+          <select id="interval">
+            <option value="1">1 h</option><option value="4">4 h</option>
+            <option value="12">12 h</option><option value="24">24 h</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <!-- counters: NEW captures uploaded this session (the exciting number) -->
+    <div class="card col-4" title="Big number = unique targets you've collected this session (with a position). Small number = currently staged for the next upload. Your all-time account totals are in the stats panel.">
+      <h2>Collected this session ↑</h2>
+      <div class="counters">
+        <div class="counter" id="c-air">
+          <div class="num" id="n-air">0</div><div class="lbl">Aircraft</div>
+          <div class="sess" id="s-air">0 queued</div><div class="burst" id="b-air"></div>
+        </div>
+        <div class="counter mag" id="c-mesh">
+          <div class="num" id="n-mesh">0</div><div class="lbl">Mesh</div>
+          <div class="sess" id="s-mesh">0 queued</div><div class="burst" id="b-mesh"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- live feed: what's in view RIGHT NOW — one panel per source -->
+    <div class="card col-12">
+      <h2>Live incoming — unique captured</h2>
+      <div class="feeds">
+        <div>
+          <div class="feedhdr" style="color:var(--cyan)">✈ AIRCRAFT<span class="incount" id="lc-air" style="color:var(--cyan)">0</span></div>
+          <div class="feed" id="feed-air"><div class="empty">waiting for ADS-B decoder…</div></div>
+        </div>
+        <div class="feedcol-div">
+          <div class="feedhdr" style="color:var(--mag)"><span>📡 MESHTASTIC <span class="gpsnote" id="gps-mt"></span></span><span class="incount" id="lc-mt" style="color:var(--mag)">0</span></div>
+          <div class="feed" id="feed-mt"><div class="empty">no Meshtastic nodes heard yet</div></div>
+        </div>
+        <div class="feedcol-div">
+          <div class="feedhdr" style="color:var(--amber)"><span>🌐 MESHCORE <span class="gpsnote" id="gps-mc"></span></span><span class="incount" id="lc-mc" style="color:var(--amber)">0</span></div>
+          <div class="feed" id="feed-mc"><div class="empty">no MeshCore nodes heard yet</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- stats -->
+    <div class="card col-4">
+      <h2>Your WDGWars stats</h2>
+      <div id="stats-body"><div class="empty">set an API key in Settings ↓</div></div>
+    </div>
+
+    <!-- leaderboard -->
+    <div class="card col-4">
+      <h2>Leaderboard</h2>
+      <div class="tabs" id="lb-tabs">
+        <div class="tab active" data-b="today">Today</div>
+        <div class="tab" data-b="week">Week</div>
+        <div class="tab" data-b="all_time">All-time</div>
+        <div class="tab" data-b="gangs">Gangs</div>
+        <div class="tab" data-b="hunters">Hunters</div>
+      </div>
+      <table class="lb"><tbody id="lb-body"><tr><td class="empty">loading…</td></tr></tbody></table>
+    </div>
+
+    <!-- events -->
+    <div class="card col-4" id="card-activity">
+      <h2>Activity</h2>
+      <div class="events" id="events"><div>—</div></div>
+    </div>
+
+    <!-- settings -->
+    <div class="card col-12">
+      <h2>Settings</h2>
+      <div class="form">
+        <div class="field">
+          <label>WDGWars API key (64-char hex) — <a href="https://wdgwars.pl/profile?gen=1#apikeys" target="_blank" rel="noopener">generate one ↗</a></label>
+          <div class="row">
+            <input type="password" id="f-key" placeholder="paste key…" autocomplete="off">
+            <button class="btn ghost" id="btn-testkey">Test</button>
+          </div>
+          <span class="msg" id="key-msg"></span>
+        </div>
+        <div class="field">
+          <label>ADS-B aircraft.json URL (running dump1090/tar1090)</label>
+          <input type="text" id="f-adsburl" placeholder="http://localhost:8080/data/aircraft.json">
+        </div>
+        <div class="field">
+          <label>Sources</label>
+          <div class="row">
+            <label class="switch"><input type="checkbox" id="f-adsb"> ADS-B (RTL-SDR or PortaPack)</label>
+            <label class="switch"><input type="checkbox" id="f-mesh"> Mesh</label>
+          </div>
+        </div>
+        <div class="field" style="grid-column:1/-1">
+          <label>Mesh devices — MeshCore + Meshtastic, read &amp; uploaded together</label>
+          <div id="mesh-devs"></div>
+          <button class="btn ghost" id="btn-adddev" type="button" style="margin-top:6px;padding:6px 12px">+ Add device</button>
+        </div>
+        <div class="field">
+          <label>Mesh discovery nudge every (minutes, 0 = off) — MeshCore flood advert / Meshtastic NodeInfo request</label>
+          <input type="number" id="f-advert" min="0" max="1440" step="5" placeholder="60">
+        </div>
+        <div class="field">
+          <label>Meshtastic hop limit (1–7, higher = more reach)</label>
+          <input type="number" id="f-hops" min="1" max="7" step="1" placeholder="7">
+        </div>
+        <div class="field">
+          <label>Startup</label>
+          <label class="switch"><input type="checkbox" id="f-boot"> Start automatically with Windows</label>
+        </div>
+        <div class="field" style="align-self:end">
+          <button class="btn" id="btn-save">Save settings</button>
+          <span class="msg" id="save-msg"></span>
+        </div>
+        <div class="field" style="grid-column:1/-1">
+          <label>Prerequisites — one-time setup checks</label>
+          <div class="checks" id="prereqs"><div class="empty">checking…</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal" id="modal"><div class="sheet" id="sheet"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let LB_TAB = "today", MY_ID = null, dirtyKey = false, _prevNewA = null, _prevNewM = null;
+
+function fmtDur(s){s=Math.max(0,Math.floor(s));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;
+  return h?`${h}h ${m}m`:(m?`${m}m ${ss}s`:`${ss}s`);}
+function toast(t){const el=$("#toast");el.textContent=t;el.classList.add("show");setTimeout(()=>el.classList.remove("show"),2200);}
+
+function animateNum(el,to){
+  to=to|0;
+  const from=parseInt((el.textContent||"").replace(/\D/g,''))||0;
+  if(el._anim){clearInterval(el._anim);el._anim=null;}   // no stacked intervals
+  if(from===to){el.textContent=to;return;}
+  const steps=12,dur=300; let i=0;
+  el._anim=setInterval(()=>{i++;el.textContent=Math.round(from+(to-from)*(i/steps));
+    if(i>=steps){el.textContent=to;clearInterval(el._anim);el._anim=null;}},dur/steps);
+}
+
+async function api(path,method="GET",body){
+  const o={method,headers:{"Content-Type":"application/json"}};
+  if(body)o.body=JSON.stringify(body);
+  const r=await fetch(path,o); return r.json();
+}
+
+async function poll(){
+  let s; try{ s=await api("/api/state"); }catch(e){ $("#link").textContent="OFFLINE"; $("#link").style.color="var(--red)"; return; }
+  $("#link").textContent="ONLINE"; $("#link").style.color="var(--green)";
+  render(s);
+}
+
+function setDot(id,state){const d=$(id);d.className="dot "+state;}
+
+function render(s){
+  // stash feed items so modals can look them up by key
+  window.AIR={}; (s.feed.aircraft||[]).forEach(a=>window.AIR[a.hex]=a);
+  window.MESH={}; [...(s.feed.meshtastic||[]), ...(s.feed.meshcore||[]), ...(s.feed.mesh||[])].forEach(m=>window.MESH[m.node_id]=m);
+  // header
+  $("#uptime").textContent=fmtDur(s.uptime);
+  const st=s.stats||{}; $("#op-name").textContent=st.username||"—"; MY_ID=st.user_id||MY_ID;
+
+  // devices
+  const sdr=s.devices.rtlsdr||{}, mesh=s.devices.mesh||{}, pp=s.devices.portapack||{};
+  // Which radio is actually feeding aircraft right now ("rtlsdr" | "mayhem" | "").
+  const adsbActive = (s.config&&s.config.adsb_active_source)||"";
+  // Red means "you need to do something". A missing RTL-SDR while the PortaPack
+  // feeds aircraft is not that - show it neutral.
+  setDot("#d-sdr", sdr.present ? (sdr.driver_ok===false ? "warn" : "on")
+                               : (adsbActive==="mayhem" ? "" : "off"));
+  $("#d-sdr-t").textContent = sdr.present
+      ? (sdr.driver_ok===false ? (sdr.label+" — needs WinUSB driver") : sdr.label)
+      // Not having an RTL-SDR is not a fault when the PortaPack is the source.
+      : (adsbActive==="mayhem" ? "not detected — using PortaPack" : "not detected");
+  // A connected PortaPack whose log stopped growing is NOT healthy: the console
+  // still answers, so "connected" alone would show green while nothing is fed.
+  const ppStall = (pp.stalled_for!=null && pp.stalled_for > 300) ? Math.round(pp.stalled_for/60) : 0;
+  // Only the ACTIVE ADS-B radio is read. A PortaPack left plugged in while the
+  // RTL-SDR feeds aircraft is on standby: it never connects, so without this it
+  // sat on an amber "starting…" forever and looked broken.
+  const ppActive = adsbActive === "mayhem";
+  setDot("#d-pp", !pp.present ? (adsbActive==="rtlsdr" ? "" : "off")
+                : !ppActive   ? ""
+                : (pp.connected && !ppStall) ? "on" : "warn");
+  $("#d-pp-t").textContent = !pp.present ? "not detected"
+      : !ppActive ? `${pp.port} · standby (RTL-SDR in use)`
+      : pp.connected
+          ? (ppStall ? `${pp.port} — no data for ${ppStall}m (stalled)`
+                     : `${pp.port} · ${pp.aircraft||0} aircraft`)
+          : (pp.error ? `${pp.port} — ${pp.error}` : `${pp.port} — starting…`);
+  const mdevs = mesh.devices||[];
+  const anyConn = mesh.connected || mdevs.some(d=>d.connected);
+  setDot("#d-mesh", (mesh.present||mdevs.length)?(anyConn?"on":"warn"):"off");
+  // Title reflects the ACTUAL protocol(s) in use — runtime devices first, else
+  // whatever's configured — so a Meshtastic rig never mislabels as "MeshCore".
+  const protoSrc = mdevs.length ? mdevs : ((s.config&&s.config.mesh_devices)||[]);
+  const protos = [...new Set(protoSrc.map(d=>(d.protocol||'meshcore').toLowerCase()))];
+  const NAME={meshcore:'MeshCore',meshtastic:'Meshtastic'};
+  $("#d-mesh-n").textContent =
+      protos.length===0 ? 'Mesh'
+    : protos.length===1 ? NAME[protos[0]]||'Mesh'
+    : protos.map(p=>NAME[p]||p).join(' + ');
+  let mtxt;
+  if(mdevs.length){
+    mtxt = mdevs.map(d=>`${d.port} ${d.protocol==='meshtastic'?'MT':'MC'} ${d.connected?d.contacts:'✗'}`).join(' · ');
+  } else if(mesh.present){ mtxt = anyConn?`${mesh.contacts||0} nodes`:'not responding'; }
+  else { mtxt = 'not detected'; }
+  $("#d-mesh-t").textContent = mtxt;
+  $("#d-up").textContent = s.upload_in_progress ? "UPLOADING…" : "idle";
+
+  // Big number = unique targets COLLECTED this session (includes the queued).
+  const newA=(s.collected&&s.collected.aircraft)||0, newM=(s.collected&&s.collected.mesh)||0;
+  animateNum($("#n-air"), newA);
+  animateNum($("#n-mesh"), newM);
+  $("#s-air").textContent = (s.pending.aircraft||0)+" staged to send";
+  $("#s-mesh").textContent = (s.pending.mesh||0)+" staged to send";
+  // Current-seen counts live in the Live Incoming panel now.
+  const L=s.live||{};
+  $("#lc-air").textContent = L.aircraft||0;
+  $("#lc-mt").textContent = L.meshtastic||0;
+  $("#lc-mc").textContent = L.meshcore||0;
+  // "N w/GPS" - how many of the heard nodes have a fix (the uploadable ones).
+  // Explains why "collected" (located) is far below the panel's heard count.
+  $("#gps-mt").textContent = (L.meshtastic_gps||0)+" w/GPS";
+  $("#gps-mc").textContent = (L.meshcore_gps||0)+" w/GPS";
+  // Pop a "+N" burst when the session haul climbs (an upload just imported).
+  if(_prevNewA!=null && newA>_prevNewA) burst("#b-air", newA-_prevNewA);
+  if(_prevNewM!=null && newM>_prevNewM) burst("#b-mesh", newM-_prevNewM);
+  _prevNewA=newA; _prevNewM=newM;
+
+  // next run
+  if(s.next_run_ts){const d=s.next_run_ts-s.now; $("#nextrun").innerHTML="next auto-upload: <b>"+fmtDur(d)+"</b>";}
+  if(!document.activeElement || $("#interval")!==document.activeElement) $("#interval").value=s.interval_hours;
+
+  const airEmpty = s.adsb_source_ok === false
+      ? "⚠ no ADS-B decoder — check Prerequisites"
+      : (s.adsb_source_ok === true ? "✓ decoder running — no aircraft in range right now"
+                                   : "starting ADS-B decoder…");
+  renderFeed("#feed-air", s.feed.aircraft, aircraftRow, airEmpty);
+  renderFeed("#feed-mt", s.feed.meshtastic||[], meshRow, "no Meshtastic nodes heard yet");
+  renderFeed("#feed-mc", s.feed.meshcore||[], meshRow, "no MeshCore nodes yet — building (check antenna / frequency)");
+  renderStats(st);
+  renderPrereqs(s.prereqs);
+  renderLeaderboard(s.leaderboard);
+  renderEvents(s.events);
+  // settings (only fill when not being edited)
+  const c=s.config||{};
+  fillIfIdle("#f-adsburl", c.adsb_json_url||"");
+  fillChk("#f-adsb", c.adsb_enabled); fillChk("#f-mesh", c.mesh_enabled); fillChk("#f-boot", c.start_on_boot);
+  fillIfIdle("#f-advert", c.mesh_advert_minutes);
+  fillIfIdle("#f-hops", c.mesh_hop_limit);
+  if(!window._devsInit){ renderMeshDevs(c.mesh_devices||[]); window._devsInit=true; }
+  if(!dirtyKey && document.activeElement!==$("#f-key")) $("#f-key").placeholder = c.has_api_key ? "•••••••• key set — type to change" : "paste key…";
+}
+
+function fillIfIdle(sel,val){const el=$(sel); if(document.activeElement!==el) el.value=val;}
+function fillChk(sel,val){const el=$(sel); if(document.activeElement!==el) el.checked=!!val;}
+
+let lastAir=new Set(), lastMesh=new Set();
+function feedSig(items,isAir){
+  return items.map(it=> isAir ? `${it.hex}|${it.flight}|${it.alt}|${it.gs}`
+                              : `${it.node_id}|${it.name}|${it.node_type}|${it.lat}|${it.lon}`).join(";");
+}
+function renderFeed(sel, items, rowFn, emptyMsg){
+  const box=$(sel);
+  const isAir = sel.includes("air");
+  if(!items||!items.length){
+    const es="e:"+emptyMsg;
+    if(box.dataset.sig!==es){ box.innerHTML=`<div class="empty">${emptyMsg}</div>`; box.dataset.sig=es; }
+    return;
+  }
+  const sig = feedSig(items,isAir);
+  if(box.dataset.sig===sig) return;   // unchanged -> don't rebuild the table (avoids jank)
+  const prev = isAir?lastAir:lastMesh;
+  const seen=new Set();
+  let rows="";
+  for(const it of items){ const key=isAir?it.hex:it.node_id; seen.add(key);
+    rows+=rowFn(it, !prev.has(key)); }
+  if(isAir)lastAir=seen; else lastMesh=seen;
+  const head = isAir
+    ? "<tr><th></th><th>Flight</th><th>ICAO</th><th>Alt</th><th>Spd</th></tr>"
+    : "<tr><th>Name</th><th>Type</th><th>Lat</th><th>Lon</th></tr>";
+  box.innerHTML=`<table>${head}${rows}</table>`;
+  box.dataset.sig=sig;
+  if(isAir) loadThumbs();
+}
+function aircraftRow(a,isNew){return `<tr data-key="${a.hex}" class="${isNew?'new':''}"><td class="thumb"><img data-thumb="${a.hex}" class="acthumb" alt=""></td><td>${a.flight||'—'}</td><td>${a.hex||''}</td><td>${a.alt??'—'}</td><td>${a.gs!=null?Math.round(a.gs):'—'}</td></tr>`;}
+function meshRow(m,isNew){const t=(m.node_type||'').toLowerCase();const cls=t.includes('repeat')?'rep':t.includes('comp')?'comp':t.includes('room')?'room':'sensor';
+  const hasPos = m.lat!=null && m.lon!=null;
+  const rowcls = (isNew?'new ':'')+(hasPos?'':'nogps');
+  const title = hasPos ? 'has a fix — staged for upload' : 'heard, waiting on a position before it can upload';
+  const lat = hasPos ? (+m.lat).toFixed(4) : '—';
+  const lon = hasPos ? (+m.lon).toFixed(4) : '<span class="await">no GPS yet</span>';
+  return `<tr data-key="${m.node_id}" class="${rowcls}" title="${title}"><td>${m.name||m.node_id}</td><td><span class="tag ${cls}">${m.node_type||'?'}</span></td><td>${lat}</td><td>${lon}</td></tr>`;}
+
+// ---- aircraft-type thumbnails (lazy, cached, throttled) ----
+const PHOTO_CACHE={}; let thumbQueue=[], thumbActive=0;
+function mkPlaceholder(){ const s=document.createElement('span'); s.className='acthumb none'; s.textContent='✈'; return s; }
+function applyThumb(img,url){ if(!img||!img.parentNode) return;
+  if(url){ img.src=url; img.classList.remove('none'); } else { img.replaceWith(mkPlaceholder()); } }
+function loadThumbs(){
+  document.querySelectorAll('#feed-air img[data-thumb]').forEach(img=>{
+    const hex=img.dataset.thumb, c=PHOTO_CACHE[hex];
+    if(c!==undefined && c!=='pending'){ applyThumb(img,c); }
+    else if(c===undefined){ PHOTO_CACHE[hex]='pending'; thumbQueue.push(hex); }
+  });
+  pumpThumbs();
+}
+function pumpThumbs(){
+  while(thumbActive<3 && thumbQueue.length){
+    const hex=thumbQueue.shift(); thumbActive++;
+    fetch(`/api/aircraft-info?hex=${hex}`).then(r=>r.json())
+      .then(info=>{ PHOTO_CACHE[hex]=info.photo_thumb||info.photo||''; })
+      .catch(()=>{ PHOTO_CACHE[hex]=''; })
+      .finally(()=>{ thumbActive--;
+        document.querySelectorAll(`#feed-air img[data-thumb="${hex}"]`).forEach(img=>applyThumb(img,PHOTO_CACHE[hex]));
+        pumpThumbs(); });
+  }
+}
+
+function renderStats(st){
+  const b=$("#stats-body");
+  if(!st||!st.username){b.innerHTML='<div class="empty">set an API key in Settings ↓</div>';return;}
+  const rank=(st.your_rank&&st.your_rank.week)?("#"+st.your_rank.week):"—";
+  const cr=st.credits||{};
+  b.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div><div style="font-weight:800;font-size:15px;color:#dfe">${st.username}</div>
+      <div class="d" style="color:var(--muted)">${st.gang?('▣ '+st.gang):''} ${st.gang_role?('· '+st.gang_role):''}</div></div>
+      <div class="pill">week ${rank}</div>
+    </div>
+    <div class="big-total">${(st.total||0).toLocaleString()}</div>
+    <div class="d" style="color:var(--muted);margin-bottom:10px">total captures</div>
+    <div class="kv">
+      <span class="k">Wi-Fi</span><span class="v">${(st.wifi||0).toLocaleString()}</span>
+      <span class="k">BLE</span><span class="v">${(st.ble||0).toLocaleString()}</span>
+      <span class="k">Aircraft</span><span class="v">${(st.aircraft||0).toLocaleString()}</span>
+      <span class="k">Mesh</span><span class="v">${(st.mesh||0).toLocaleString()}</span>
+      <span class="k">Credits</span><span class="v">${(cr.balance||0).toLocaleString()}</span>
+      <span class="k">7-day</span><span class="v">${(st.recent_7d||0).toLocaleString()}</span>
+    </div>
+    <div class="badges">${(st.badges||[]).slice(0,12).map(x=>`<span class="badge">${x}</span>`).join('')}</div>`;
+}
+
+function renderPrereqs(p){
+  const box=$("#prereqs"); const checks=(p&&p.checks)||[];
+  if(!checks.length){box.innerHTML='<div class="empty">checking…</div>';return;}
+  box.innerHTML=checks.map(c=>`
+    <div class="chk"><div class="dot ${c.ok?'on':'warn'}" style="margin-top:3px"></div>
+      <div><div class="s">${c.name} <span class="m">— ${c.status}</span></div>
+        ${c.detail?`<div class="m">${c.detail}</div>`:''}
+        ${!c.ok&&c.fix?`<div class="fix">▶ ${c.fix} ${c.url?`<a href="${c.url}" target="_blank">${c.url}</a>`:''}</div>`:''}
+      </div></div>`).join('');
+}
+
+function renderLeaderboard(lb){
+  const body=$("#lb-body");
+  if(!lb||Object.keys(lb).length===0){body.innerHTML='<tr><td class="empty">no data</td></tr>';return;}
+  let rows=lb[LB_TAB]||[];
+  if(!rows.length){body.innerHTML='<tr><td class="empty">—</td></tr>';return;}
+  body.innerHTML=rows.slice(0,15).map((r,i)=>{
+    const name=r.username||r.name||('#'+(r.gang_id||r.user_id||''));
+    const val=(r.total||r.ap_count||r.completed||r.earned||0).toLocaleString();
+    const me=(MY_ID&&(r.user_id===MY_ID))?'me':'';
+    return `<tr><td class="rank">${i+1}</td><td class="${me}">${name}</td><td class="val">${val}</td></tr>`;
+  }).join('');
+}
+
+let _lastEventSig='';
+function renderEvents(evs){
+  const box=$("#events");
+  if(!evs||!evs.length){box.innerHTML='<div>—</div>';return;}
+  // Only rebuild when a new event actually arrives, so scrolling through
+  // history isn't reset on every poll.
+  const sig = evs.length+'|'+evs[0].t+'|'+evs[0].msg;
+  if(sig===_lastEventSig) return;
+  _lastEventSig=sig;
+  box.innerHTML=evs.map(e=>{const t=new Date(e.t*1000).toLocaleTimeString();
+    return `<div><span class="t">${t}</span> ${e.msg}</div>`;}).join('');
+}
+
+function burst(sel,n){const el=$(sel);el.textContent="+"+n+" ▲";el.classList.add("show");setTimeout(()=>el.classList.remove("show"),1600);}
+
+// actions
+$("#btn-upload").onclick=async()=>{
+  $("#btn-upload").disabled=true;
+  toast("Uploading…");
+  await api("/api/upload","POST");
+  // Wait for the cycle to finish (the server job can be slow). The "+N" burst
+  // and the climbing haul number happen automatically in render().
+  const start=Date.now();
+  while(Date.now()-start<200000){
+    await new Promise(r=>setTimeout(r,2000));
+    const s=await api("/api/state");
+    if(!s.upload_in_progress){ toast("Upload complete"); break; }
+  }
+  $("#btn-upload").disabled=false;
+};
+$("#btn-rescan").onclick=async()=>{ toast("Rescanning devices…"); await api("/api/rescan","POST"); poll(); };
+$("#interval").onchange=async(e)=>{ await api("/api/interval","POST",{interval_hours:+e.target.value}); toast("Interval set to "+e.target.value+"h"); };
+$("#f-key").oninput=()=>{dirtyKey=true;};
+$("#btn-testkey").onclick=async()=>{
+  const key=$("#f-key").value.trim(); const m=$("#key-msg");
+  m.textContent="testing…"; m.className="msg";
+  const r=await api("/api/test-key","POST",{api_key:key});
+  if(r.ok){m.textContent="✓ valid — "+r.username;m.className="msg ok";}
+  else{m.textContent="✗ "+(r.error||"invalid");m.className="msg err";}
+};
+$("#btn-save").onclick=async()=>{
+  const cfg={
+    interval_hours:+$("#interval").value,
+    adsb_enabled:$("#f-adsb").checked, mesh_enabled:$("#f-mesh").checked,
+    adsb_json_url:$("#f-adsburl").value.trim(),
+    mesh_devices:collectMeshDevs(),
+    mesh_advert_minutes:parseInt($("#f-advert").value)||0,
+    mesh_hop_limit:Math.min(7,Math.max(1,parseInt($("#f-hops").value)||7)),
+    start_on_boot:$("#f-boot").checked,
+  };
+  const key=$("#f-key").value.trim(); if(key) cfg.api_key=key;
+  const m=$("#save-msg"); m.textContent="saving…"; m.className="msg";
+  const r=await api("/api/config","POST",cfg);
+  if(r.ok){m.textContent="✓ saved";m.className="msg ok";dirtyKey=false;$("#f-key").value="";toast("Settings saved");
+    await api("/api/refresh-stats","POST"); poll();}
+  else{m.textContent="✗ "+(r.error||"error");m.className="msg err";}
+};
+document.querySelectorAll("#lb-tabs .tab").forEach(t=>t.onclick=()=>{
+  document.querySelectorAll("#lb-tabs .tab").forEach(x=>x.classList.remove("active"));
+  t.classList.add("active"); LB_TAB=t.dataset.b; poll();
+});
+
+// ---- detail modals ----
+function closeModal(){ $("#modal").classList.remove('show'); }
+function openModal(html, mag){
+  const sh=$("#sheet"); sh.className='sheet'+(mag?' mag':'');
+  sh.innerHTML=`<span class="x" onclick="closeModal()">×</span>`+html;
+  $("#modal").classList.add('show');
+}
+const AC_CAT={a0:'—',a1:'Light',a2:'Small',a3:'Large',a4:'Large (high-vortex)',a5:'Heavy',a6:'High-performance',
+  a7:'Rotorcraft',b1:'Glider',b2:'Lighter-than-air',b3:'Parachutist',b4:'Ultralight',b6:'UAV',b7:'Space',
+  c1:'Emergency vehicle',c2:'Service vehicle',c3:'Obstacle'};
+async function openAircraft(hex){
+  const a=(window.AIR||{})[hex]||{hex}; const g=v=>v==null?'—':v;
+  const cat=a.category?(AC_CAT[String(a.category).toLowerCase()]||a.category):null;
+  openModal(`
+    <div class="hd"><h2 id="mt">${a.flight||hex}</h2><div class="sub">ICAO ${hex.toUpperCase()}</div></div>
+    <div class="bd">
+      <div id="mphoto"></div>
+      <div id="mmeta" class="spin">loading aircraft details…</div>
+      <div class="kv2" style="margin-top:12px">
+        <span class="k">Altitude</span><span class="v">${a.alt!=null?Number(a.alt).toLocaleString()+' ft':'—'}</span>
+        <span class="k">Ground speed</span><span class="v">${a.gs!=null?Math.round(a.gs)+' kt':'—'}</span>
+        <span class="k">Heading</span><span class="v">${a.track!=null?Math.round(a.track)+'°':'—'}</span>
+        <span class="k">Vertical rate</span><span class="v">${a.vert_rate!=null?(a.vert_rate>0?'+':'')+a.vert_rate+' fpm':'—'}</span>
+        <span class="k">Squawk</span><span class="v">${g(a.squawk)}</span>
+        ${cat?`<span class="k">Category</span><span class="v">${cat}</span>`:''}
+        <span class="k">Signal</span><span class="v">${a.rssi!=null?a.rssi+' dBFS':'—'}</span>
+        <span class="k">Messages</span><span class="v">${a.messages!=null?Number(a.messages).toLocaleString():'—'}</span>
+        ${a.lat!=null?`<span class="k">Position</span><span class="v">${(+a.lat).toFixed(4)}, ${(+a.lon).toFixed(4)}</span>`:''}
+        ${a.seen!=null?`<span class="k">Last seen</span><span class="v">${Math.round(a.seen)}s ago</span>`:''}
+      </div>
+      <div style="margin-top:12px">
+        ${a.lat!=null?`<a class="maplink" href="/map" target="_blank">🗺 Live map</a>`:''}
+        <a class="maplink" href="https://globe.adsb.fi/?icao=${hex.toLowerCase()}" target="_blank">📡 Track</a>
+      </div>
+    </div>`);
+  try{
+    const info=await (await fetch(`/api/aircraft-info?hex=${hex}&cs=${encodeURIComponent(a.flight||'')}`)).json();
+    const meta=$("#mmeta"); if(!meta) return; let h='';
+    const line=[info.manufacturer,info.type].filter(Boolean).join(' ');
+    if(line) h+=`<div style="font-size:16px;color:#dfe;margin-bottom:4px;font-weight:700">${line}</div>`;
+    const sub=[info.registration,info.icao_type,info.operator].filter(Boolean).join(' · ');
+    if(sub) h+=`<div class="sub">${sub}</div>`;
+    if(info.country) h+=`<div class="sub">${info.country}</div>`;
+    if(info.route){const r=info.route; h+=`<div class="route"><span class="ap">${r.origin||'?'}</span><span class="arrow">✈</span><span class="ap">${r.destination||'?'}</span></div>`;
+      if(r.airline) h+=`<div class="sub" style="margin-top:4px">${r.airline}</div>`;
+      if(r.origin_name||r.destination_name) h+=`<div class="sub" style="font-size:10px">${r.origin_name||''} → ${r.destination_name||''}</div>`;}
+    meta.className=''; meta.innerHTML=h||'<div class="sub">no additional aircraft info found</div>';
+    if(info.photo){
+      const img=document.createElement('img'); img.className='photo'; img.src=info.photo;
+      img.onerror=()=>{ if(info.photo_alt && img.src!==info.photo_alt){ img.src=info.photo_alt; } else { img.remove(); } };
+      $("#mphoto").appendChild(img);
+      if(info.photographer){ const c=document.createElement('div'); c.className='cred';
+        c.innerHTML=`📷 ${info.photographer}${info.photo_link?` · <a href="${info.photo_link}" target="_blank">planespotters</a>`:''}`;
+        $("#mphoto").appendChild(c); }
+    }
+    if(info.registration && !a.flight){ const t=$("#mt"); if(t) t.textContent=info.registration; }
+  }catch(e){ const m=$("#mmeta"); if(m){ m.className=''; m.innerHTML='<div class="sub">details unavailable</div>'; } }
+}
+function fmtUptime(s){ s=+s; if(!s) return null; const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
+  return d?`${d}d ${h}h`:h?`${h}h ${m}m`:`${m}m`; }
+function openMesh(id){
+  const m=(window.MESH||{})[id]||{node_id:id};
+  const t=(m.node_type||'').toLowerCase();
+  const cls=t.includes('repeat')?'rep':t.includes('comp')?'comp':t.includes('room')?'room':'sensor';
+  const hasPos=m.lat!=null&&m.lon!=null;
+  const te=m.tele||{};
+  // Telemetry rows (only the ones actually present for this node).
+  const rows=[];
+  const push=(k,v)=>{ if(v!==undefined&&v!==null&&v!=='') rows.push(`<span class="k">${k}</span><span class="v">${v}</span>`); };
+  push('Signal (SNR)', te.snr!=null?te.snr.toFixed(2)+' dB':null);
+  push('Hops away', te.hops_away!=null?(te.hops_away===0?'0 (direct)':te.hops_away):null);
+  push('Role', te.role);
+  // Meshtastic reports batteryLevel > 100 to mean "on external/USB power".
+  push('Battery', te.battery!=null?(te.battery>100?'external power':te.battery+'%'):null);
+  push('Voltage', te.voltage?te.voltage.toFixed(2)+' V':null);
+  push('Channel util', te.ch_util!=null?te.ch_util.toFixed(1)+'%':null);
+  push('Air util TX', te.air_util_tx!=null?te.air_util_tx.toFixed(1)+'%':null);
+  push('Uptime', fmtUptime(te.uptime_s));
+  push('Temp', te.temp_c!=null?te.temp_c.toFixed(1)+' °C':null);
+  push('Humidity', te.humidity!=null?te.humidity.toFixed(0)+'%':null);
+  push('Pressure', te.pressure!=null?te.pressure.toFixed(0)+' hPa':null);
+  const teleHtml = rows.length
+    ? `<div class="sub" style="margin-top:12px;color:var(--mag)">TELEMETRY</div><div class="kv2">${rows.join('')}</div>`
+    : `<div class="sub" style="margin-top:12px">no telemetry heard yet</div>`;
+  openModal(`
+    <div class="hd"><h2>${m.name||id}</h2><div class="sub">${id}</div></div>
+    <div class="bd">
+      <div style="margin-bottom:10px"><span class="tag ${cls}">${m.node_type||'node'}</span>${hasPos?'':' <span class="await">· heard, no GPS yet (not uploaded until it has a fix)</span>'}</div>
+      <div class="kv2">
+        <span class="k">Node ID</span><span class="v">${id}</span>
+        <span class="k">Latitude</span><span class="v">${hasPos?(+m.lat).toFixed(5):'—'}</span>
+        <span class="k">Longitude</span><span class="v">${hasPos?(+m.lon).toFixed(5):'—'}</span>
+        <span class="k">First seen</span><span class="v">${m.first_seen||'—'}</span>
+      </div>
+      ${teleHtml}
+      ${hasPos?`<div style="margin-top:12px"><a class="maplink" href="/map" target="_blank">🗺 Live map</a>
+        <a class="maplink" href="https://www.openstreetmap.org/?mlat=${m.lat}&mlon=${m.lon}#map=15/${m.lat}/${m.lon}" target="_blank">📍 OSM</a></div>`:''}
+    </div>`, true);
+}
+$("#feed-air").addEventListener('click',e=>{const tr=e.target.closest('tr[data-key]'); if(tr) openAircraft(tr.dataset.key);});
+for(const fid of ["#feed-mt","#feed-mc"]){
+  $(fid).addEventListener('click',e=>{const tr=e.target.closest('tr[data-key]'); if(tr) openMesh(tr.dataset.key);});
+}
+$("#btn-map").onclick=()=>window.open('/map','_blank');
+$("#modal").addEventListener('click',e=>{ if(e.target.id==='modal') closeModal(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeModal(); });
+
+// ---- mesh device list editor ----
+function addDevRow(d){
+  d=d||{port:'auto',protocol:'meshcore',enabled:true};
+  const row=document.createElement('div'); row.className='devrow';
+  row.innerHTML=`<label class="switch" style="margin:0" title="enabled"><input type="checkbox" class="d-en" ${d.enabled!==false?'checked':''}></label>
+    <input type="text" class="d-port" value="${d.port||'auto'}" placeholder="auto / COM13">
+    <select class="d-proto"><option value="meshcore"${(d.protocol||'meshcore')==='meshcore'?' selected':''}>MeshCore</option><option value="meshtastic"${d.protocol==='meshtastic'?' selected':''}>Meshtastic</option></select>
+    <button class="btn ghost d-rm" type="button" title="remove">✕</button>`;
+  row.querySelector('.d-rm').onclick=()=>row.remove();
+  $("#mesh-devs").appendChild(row);
+}
+function renderMeshDevs(devs){
+  $("#mesh-devs").innerHTML='';
+  (devs&&devs.length?devs:[{port:'auto',protocol:'meshcore',enabled:true}]).forEach(addDevRow);
+}
+function collectMeshDevs(){
+  return [...document.querySelectorAll('#mesh-devs .devrow')].map(r=>({
+    enabled:r.querySelector('.d-en').checked,
+    port:r.querySelector('.d-port').value.trim()||'auto',
+    protocol:r.querySelector('.d-proto').value, baud:115200}));
+}
+$("#btn-adddev").onclick=()=>addDevRow({port:'auto',protocol:'meshtastic',enabled:true});
+
+poll(); setInterval(poll, 2500);
+</script>
+</body>
+</html>

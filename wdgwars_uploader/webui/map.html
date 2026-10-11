@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WDGWars Live Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
+<style>
+:root{--cyan:#00e5ff;--mag:#ff2d95;--amber:#ffb300;--bg:#05070a;--panel:#0b1119ee;--muted:#5f7285;--txt:#c7d6e5;--line:#1a2634}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+  font-family:ui-monospace,"Cascadia Code",Consolas,monospace}
+#map{position:absolute;inset:0}
+.leaflet-container{background:#05070a}
+.topbar{position:absolute;z-index:1000;top:12px;left:12px;right:12px;display:flex;align-items:center;gap:14px;
+  pointer-events:none}
+.badge{pointer-events:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:8px 14px;backdrop-filter:blur(6px)}
+.badge.title{letter-spacing:2px;font-weight:800;color:transparent;background:linear-gradient(90deg,var(--cyan),var(--mag));
+  -webkit-background-clip:text;background-clip:text;border-color:#123}
+.badge b{font-size:15px}
+.counts{display:flex;gap:16px}
+.counts span{font-size:12px;color:var(--muted)}
+.counts .ac{color:var(--cyan)} .counts .mt{color:var(--mag)} .counts .mc{color:var(--amber)}
+.spacer{flex:1}
+a.home{pointer-events:auto;color:var(--cyan);text-decoration:none;border:1px solid var(--cyan);border-radius:8px;
+  padding:8px 14px;background:var(--panel);letter-spacing:1px;font-size:12px}
+a.home:hover{background:rgba(0,229,255,.12)}
+/* plane icon */
+.plane{transform-origin:center;filter:drop-shadow(0 0 4px rgba(0,229,255,.7))}
+.plane svg{display:block}
+.node-dot{width:13px;height:13px;border-radius:50%;color:var(--mag);background:currentColor;
+  box-shadow:0 0 10px currentColor;animation:pulse 2s infinite}
+.node-dot.mc{color:var(--amber)}
+@keyframes pulse{0%,100%{box-shadow:0 0 8px currentColor}50%{box-shadow:0 0 16px currentColor}}
+/* popups */
+.leaflet-popup-content-wrapper{background:#0a1017;color:var(--txt);border:1px solid var(--line);
+  border-radius:10px;box-shadow:0 0 24px rgba(0,229,255,.15)}
+.leaflet-popup-tip{background:#0a1017;border:1px solid var(--line)}
+.leaflet-popup-content{margin:12px 14px;font-size:12px;min-width:210px}
+.pp h3{margin:0 0 6px;font-size:15px;color:var(--cyan);letter-spacing:1px}
+.pp .sub{color:var(--muted);margin-bottom:8px}
+.pp img{width:100%;border-radius:8px;margin:6px 0;border:1px solid var(--line)}
+.pp .kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px}
+.pp .kv .k{color:var(--muted)} .pp .kv .v{text-align:right;color:#dfe}
+.pp .route{margin-top:6px;padding-top:6px;border-top:1px solid var(--line);color:var(--cyan)}
+.pp .cred{color:var(--muted);font-size:10px;margin-top:4px}
+.pp a{color:var(--cyan)}
+/* push the top-right layers control below the top bar so the back button
+   doesn't overlap it */
+.leaflet-top.leaflet-right{margin-top:56px}
+.leaflet-control-layers{background:var(--panel)!important;border:1px solid var(--line)!important;color:var(--txt)}
+.leaflet-control-layers-expanded{padding:8px 12px}
+.leaflet-bar a{background:#0a1017;color:var(--cyan);border-color:var(--line)}
+.leaflet-bar a:hover{background:#12202c}
+/* zoom sits bottom-right, clear of the floating top bar; bigger hit targets */
+.leaflet-bottom.leaflet-right .leaflet-control-zoom{margin:0 12px 8px 0;border:1px solid var(--line)}
+.leaflet-control-zoom a{width:36px;height:36px;line-height:36px;font-size:20px}
+.leaflet-control-attribution{background:rgba(5,7,10,.72)!important;color:var(--muted)!important;font-size:10px}
+.leaflet-control-attribution a{color:var(--cyan)!important}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="topbar">
+  <div class="badge title"><b>WDGWARS LIVE MAP</b></div>
+  <div class="badge counts"><span class="ac">✈ <b id="c-ac">0</b></span><span class="mt">📡 <b id="c-mt">0</b></span><span class="mc">🌐 <b id="c-mc">0</b></span></div>
+  <div class="spacer"></div>
+  <a class="home" href="/">← Dashboard</a>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js"></script>
+<script>
+// Basemap: the OpenFreeMap "dark" vector style - free, no API key, no
+// registration, no usage limits. MapLibre GL draws it inside Leaflet, so every
+// marker, popup and layer toggle below works exactly as before.
+const map = L.map('map', {zoomControl:false, attributionControl:true, maxZoom:19}).setView([34.05,-118.24], 9);
+map.attributionControl.setPrefix(false);
+L.control.zoom({position:'bottomright'}).addTo(map);   // top-left is under the header
+
+const OSM_CREDIT = '<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> '
+  + '© <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a> '
+  + '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>';
+let glMap = null;
+// The bridge syncs MapLibre's camera from Leaflet through a THROTTLED update
+// (and skips it entirely mid-zoom), so during page load MapLibre could take the
+// new camera without painting it: the map sat showing the previous zoom's tiles
+// shrunk into a small rectangle on black - on 2 of 3 fresh loads - until
+// something forced a frame. A repaint fired straight from the Leaflet event runs
+// BEFORE that sync lands, which is why that alone did not fix it. So: one
+// guarded repaint when MapLibre next goes idle, plus a few timed ones in case
+// idle has already come and gone.
+function repaintSoon(){
+  if(!glMap) return;
+  glMap.once('idle', () => glMap.triggerRepaint());   // once: cannot loop
+  for (const ms of [120, 800, 2500, 6000]) setTimeout(() => glMap && glMap.triggerRepaint(), ms);
+}
+let webgl = false;
+try { const c = document.createElement('canvas'); webgl = !!(c.getContext('webgl2') || c.getContext('webgl')); } catch(e) {}
+if (webgl && L.maplibreGL) {
+  const glLayer = L.maplibreGL({style:'https://tiles.openfreemap.org/styles/dark', attribution:OSM_CREDIT}).addTo(map);
+  glMap = glLayer.getMaplibreMap();
+  map.on('zoomend moveend', repaintSoon);
+  glMap.once('load', repaintSoon);
+} else {
+  // No WebGL (or the MapLibre script failed to load): keyless dark raster tiles.
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    {subdomains:'abcd', maxZoom:19,
+     attribution:'© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> '
+       + '© <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>'}).addTo(map);
+}
+
+const acLayer = L.layerGroup().addTo(map);
+const mtLayer = L.layerGroup().addTo(map);
+const mcLayer = L.layerGroup().addTo(map);
+L.control.layers(null, {'✈ Aircraft':acLayer, '📡 Meshtastic':mtLayer, '🌐 MeshCore':mcLayer},
+  {collapsed:false, position:'topright'}).addTo(map);
+
+const acMarkers = {}, meshMarkers = {};
+let fitted = false;
+
+function planeIcon(track){
+  const t = (track==null?0:track);
+  return L.divIcon({className:'', iconSize:[26,26], iconAnchor:[13,13],
+    html:`<div class="plane" style="transform:rotate(${t}deg)">
+      <svg width="26" height="26" viewBox="0 0 24 24"><path fill="#00e5ff" stroke="#04222a" stroke-width="0.5"
+        d="M12 2l1.5 7.5L22 13v2l-8.5-1.5L13 21l2 1.5V23l-3-1-3 1v-.5L11 21l-.5-7.5L2 15v-2l8.5-3.5L12 2z"/></svg></div>`});
+}
+function nodeIcon(net){ const cls = net==='meshcore' ? 'node-dot mc' : 'node-dot';
+  return L.divIcon({className:'', iconSize:[13,13], iconAnchor:[7,7], html:`<div class="${cls}"></div>`}); }
+
+function acPopup(a){
+  const g = v => (v==null?'—':v);
+  return `<div class="pp" id="pp-${a.hex}">
+    <h3>${a.flight||a.hex}</h3><div class="sub">${a.hex}</div>
+    <div class="kv">
+      <span class="k">Altitude</span><span class="v">${g(a.alt)} ft</span>
+      <span class="k">Speed</span><span class="v">${a.gs!=null?Math.round(a.gs)+' kt':'—'}</span>
+      <span class="k">Heading</span><span class="v">${a.track!=null?Math.round(a.track)+'°':'—'}</span>
+      <span class="k">Squawk</span><span class="v">${g(a.squawk)}</span>
+    </div>
+    <div class="info" data-loaded="0">loading aircraft…</div>
+  </div>`;
+}
+async function loadAcInfo(a){
+  try{
+    const r = await fetch(`/api/aircraft-info?hex=${a.hex}&cs=${encodeURIComponent(a.flight||'')}`);
+    const info = await r.json();
+    const box = document.querySelector(`#pp-${a.hex} .info`); if(!box) return;
+    let html = '';
+    if(info.photo) html += `<img src="${info.photo}" onerror="this.style.display='none'">`;
+    const line = [info.manufacturer, info.type].filter(Boolean).join(' ');
+    if(line) html += `<div class="v" style="color:#dfe">${line}</div>`;
+    if(info.registration) html += `<div class="sub">${info.registration}${info.icao_type?(' · '+info.icao_type):''}</div>`;
+    if(info.operator) html += `<div class="sub">${info.operator}${info.country?(' · '+info.country):''}</div>`;
+    if(info.route){const rt=info.route; html += `<div class="route">${rt.origin||'?'} → ${rt.destination||'?'}${rt.airline?('<div class="sub">'+rt.airline+'</div>'):''}</div>`;}
+    if(info.photographer) html += `<div class="cred">📷 ${info.photographer}${info.photo_link?` · <a href="${info.photo_link}" target="_blank">source</a>`:''}</div>`;
+    box.innerHTML = html || '<div class="sub">no extra info</div>';
+  }catch(e){}
+}
+
+function meshPopup(m){
+  const net = m.network==='meshcore' ? '🌐 MeshCore' : '📡 Meshtastic';
+  return `<div class="pp"><h3>${m.name||m.node_id}</h3><div class="sub">${m.node_id} · ${net} · ${m.node_type||'?'}</div>
+    <div class="kv"><span class="k">Lat</span><span class="v">${(+m.lat).toFixed(5)}</span>
+    <span class="k">Lon</span><span class="v">${(+m.lon).toFixed(5)}</span></div></div>`;
+}
+
+function renderMesh(list, layer, net){
+  const live = new Set();
+  for(const m of list){ if(m.lat==null||m.lon==null) continue; live.add(m.node_id);
+    if(meshMarkers[m.node_id]){ meshMarkers[m.node_id].setLatLng([m.lat,m.lon]); }
+    else{ const mk = L.marker([m.lat,m.lon],{icon:nodeIcon(net)}); mk.bindPopup(meshPopup(m));
+      mk._layer = layer; mk.addTo(layer); meshMarkers[m.node_id]=mk; } }
+  return live;
+}
+
+async function tick(){
+  let s; try{ s = await (await fetch('/api/state')).json(); }catch(e){ return; }
+  // Prefer the uncapped map lists; fall back to the feed for older builds.
+  const mp = s.map || {};
+  const ac = (mp.aircraft||s.feed.aircraft||[]).filter(a=>a.lat!=null && a.lon!=null);
+  const mt = (mp.meshtastic||[]).filter(m=>m.lat!=null && m.lon!=null);
+  const mc = (mp.meshcore||[]).filter(m=>m.lat!=null && m.lon!=null);
+  document.getElementById('c-ac').textContent = ac.length;
+  document.getElementById('c-mt').textContent = mt.length;
+  document.getElementById('c-mc').textContent = mc.length;
+
+  const liveAc = new Set();
+  for(const a of ac){ liveAc.add(a.hex);
+    if(acMarkers[a.hex]){ acMarkers[a.hex].setLatLng([a.lat,a.lon]).setIcon(planeIcon(a.track));
+      acMarkers[a.hex]._a = a; }
+    else{ const mk = L.marker([a.lat,a.lon],{icon:planeIcon(a.track)});
+      mk._a = a; mk.bindPopup(()=>acPopup(mk._a));
+      mk.on('popupopen',()=>loadAcInfo(mk._a)); mk.addTo(acLayer); acMarkers[a.hex]=mk; } }
+  for(const h in acMarkers){ if(!liveAc.has(h)){ acLayer.removeLayer(acMarkers[h]); delete acMarkers[h]; } }
+
+  const liveMt = renderMesh(mt, mtLayer, 'meshtastic');
+  const liveMc = renderMesh(mc, mcLayer, 'meshcore');
+  for(const id in meshMarkers){ if(!liveMt.has(id) && !liveMc.has(id)){
+    meshMarkers[id]._layer.removeLayer(meshMarkers[id]); delete meshMarkers[id]; } }
+
+  if(!fitted){ const pts=[...ac.map(a=>[a.lat,a.lon]),...mt.map(m=>[m.lat,m.lon]),...mc.map(m=>[m.lat,m.lon])];
+    // No animation for the one-time auto-fit: there is nothing to animate from,
+    // and it keeps the first view off the zoom-animation path entirely.
+    if(pts.length){ map.fitBounds(pts, {padding:[60,60], maxZoom:11, animate:false}); fitted=true;
+      repaintSoon(); } }
+}
+tick(); setInterval(tick, 3000);
+</script>
+</body>
+</html>
