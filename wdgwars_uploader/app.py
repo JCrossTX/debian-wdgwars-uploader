@@ -20,7 +20,13 @@ import time
 import webbrowser
 from pathlib import Path
 
-import pystray
+try:
+    # The tray is optional on Linux: pystray needs a StatusNotifier/AppIndicator
+    # host (or X11), and a headless or tray-less session still gets the full app
+    # via the web dashboard.
+    import pystray
+except Exception:  # pragma: no cover - import-time environment dependent
+    pystray = None  # type: ignore[assignment]
 from PIL import Image, ImageDraw
 
 from . import APP_NAME, __version__, adsb, autostart, mayhem, watchdog
@@ -79,8 +85,25 @@ class UploaderApp:
 
         watchdog.spawn(os.getpid())   # relaunch on an unexpected exit
 
-        self._icon = pystray.Icon(APP_NAME, _make_icon(True), APP_NAME, menu=self._menu())
-        self._icon.run()  # blocks main thread until stop()
+        if pystray is not None:
+            try:
+                self._icon = pystray.Icon(APP_NAME, _make_icon(True), APP_NAME, menu=self._menu())
+                self._icon.run()  # blocks main thread until stop()
+                return
+            except Exception:
+                log.exception("tray unavailable; continuing headless")
+                self._icon = None
+        log.info("running headless (no system tray); dashboard at %s", url or self.server.url)
+        if sys.platform != "win32":
+            # A systemd stop / Ctrl-C must still persist the un-uploaded queue.
+            import signal
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                try:
+                    signal.signal(sig, lambda *_: threading.Thread(
+                        target=self.quit, daemon=True).start())
+                except (ValueError, OSError):
+                    pass
+        self._stop.wait()  # until quit() — via the dashboard's Quit or a signal
 
     def _status_loop(self) -> None:
         while not self._stop.is_set():
@@ -122,7 +145,8 @@ class UploaderApp:
             pystray.MenuItem("Open dashboard", lambda i, it: self.open_dashboard(), default=True),
             pystray.MenuItem("Upload now", lambda i, it: self.trigger_upload()),
             pystray.MenuItem("Interval", pystray.Menu(*[interval_item(h) for h in INTERVAL_CHOICES_HOURS])),
-            pystray.MenuItem("Start on Windows boot", lambda i, it: self._toggle_boot(),
+            pystray.MenuItem("Start on boot" if sys.platform == "win32" else "Start at login",
+                             lambda i, it: self._toggle_boot(),
                              checked=lambda it: autostart.is_enabled()),
             pystray.MenuItem("Open log / config folder", lambda i, it: self._open_folder()),
             pystray.Menu.SEPARATOR,
@@ -196,7 +220,11 @@ class UploaderApp:
 
     def _open_folder(self) -> None:
         try:
-            os.startfile(str(config_dir()))  # type: ignore[attr-defined]
+            if sys.platform == "win32":
+                os.startfile(str(config_dir()))  # type: ignore[attr-defined]
+            else:
+                subprocess.Popen(["xdg-open", str(config_dir())],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
             log.exception("could not open config folder")
 
@@ -312,7 +340,17 @@ def main(open_dash: bool = True, takeover: bool = False) -> None:
 
 def _pid_alive(pid: int) -> bool:
     if sys.platform != "win32":
-        return False
+        # The lock-file check depends on this: a wrong False here would let a
+        # second instance start alongside a live first one.
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except OSError:
+            return False
     try:
         out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
                              capture_output=True, text=True, timeout=10, creationflags=_NO_WINDOW)

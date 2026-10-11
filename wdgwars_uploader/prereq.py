@@ -20,7 +20,11 @@ def _check(name: str, ok: bool, status: str, detail: str = "", fix: str = "", ur
 
 
 def check_python_deps() -> dict:
-    required = ["requests", "serial", "meshcore", "pystray", "PIL"]
+    required = ["requests", "serial", "meshcore", "PIL"]
+    if sys.platform == "win32":
+        # On Linux the tray is optional (headless + web dashboard works without
+        # a StatusNotifier host), so a missing pystray is not a failure there.
+        required.append("pystray")
     missing = [m for m in required if importlib.util.find_spec(m) is None]
     if missing:
         return _check("Python packages", False, "missing: " + ", ".join(missing),
@@ -40,6 +44,31 @@ def check_dump1090(configured_exe: str = "") -> dict:
                       "flags this unsigned decoder as Trojan:Win32/Bearfoos.A!ml, a "
                       "machine-learning false positive. The download is checked against a "
                       "pinned SHA-256 of the gvanem/Dump1090 v1.0.0 release.")
+
+
+def check_adsb_source_linux(cfg: dict) -> dict:
+    """On Linux the decoder is a system service (dump1090-fa / readsb) the app
+    reads from, never launches. OK = the configured aircraft JSON is reachable."""
+    from pathlib import Path
+
+    from . import adsb
+    url = (cfg.get("adsb_json_url") or "").strip()
+    file = (cfg.get("adsb_json_file") or "").strip()
+    if url and adsb.from_url(url, timeout=3) is not None:
+        return _check("ADS-B decoder", True, "serving", detail=url)
+    if file:
+        p = Path(file)
+        if p.exists() and adsb.from_file(file) is not None:
+            return _check("ADS-B decoder", True, "serving", detail=file)
+        if p.exists():
+            return _check("ADS-B decoder", False, f"{file} exists but is not aircraft JSON",
+                          fix="Point Settings at the decoder's aircraft.json "
+                              "(dump1090-fa writes /run/dump1090-fa/aircraft.json, "
+                              "readsb writes /run/readsb/aircraft.json).")
+    return _check("ADS-B decoder", False, "no aircraft source reachable",
+                  fix="Install one: sudo apt install dump1090-fa  (writes "
+                      "/run/dump1090-fa/aircraft.json), or set the aircraft JSON "
+                      "URL/file in Settings to wherever your decoder serves it.")
 
 
 def rtlsdr_driver_state(rtlsdr_present: bool) -> dict:
@@ -100,7 +129,9 @@ def check_all(devices, cfg: dict) -> list[dict]:
         # dump1090 and the WinUSB driver are irrelevant when the PortaPack does the
         # decoding on-device, so they are not reported as missing.
         checks.append(portapack_state(port))
-    else:
+    elif sys.platform == "win32":
         checks.append(check_dump1090(cfg.get("dump1090_exe", "")))
         checks.append(rtlsdr_driver_state(bool(devices and devices.rtlsdr_present)))
+    else:
+        checks.append(check_adsb_source_linux(cfg))
     return checks

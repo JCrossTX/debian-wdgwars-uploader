@@ -269,6 +269,33 @@ async def _read_contacts_async(port: str, baud: int, advert: bool = False) -> li
 
 
 # --- Meshtastic --------------------------------------------------------------
+def tcp_host(port: str) -> tuple[str, int] | None:
+    """A mesh "port" of the form ``tcp:HOST[:PORT]`` selects the Meshtastic TCP
+    API instead of a serial device — e.g. ``tcp:localhost`` for a meshtasticd
+    daemon running on the same Linux box (default API port 4403). Returns
+    ``(host, port)`` or None for a plain serial port path."""
+    p = (port or "").strip()
+    if not p.lower().startswith("tcp:"):
+        return None
+    rest = p[4:].lstrip("/")
+    host, _, num = rest.partition(":")
+    try:
+        return (host or "localhost"), int(num or 4403)
+    except ValueError:
+        return (host or "localhost"), 4403
+
+
+def open_meshtastic_iface(port: str):
+    """Open a Meshtastic interface for ``port``: the TCP API for ``tcp:...``
+    ports, a serial companion otherwise."""
+    tcp = tcp_host(port)
+    if tcp:
+        from meshtastic.tcp_interface import TCPInterface
+        return TCPInterface(hostname=tcp[0], portNumber=tcp[1])
+    from meshtastic.serial_interface import SerialInterface
+    return SerialInterface(devPath=port)
+
+
 # Meshtastic device role -> WDGWars node_type.
 MESHTASTIC_ROLE_MAP = {
     "ROUTER": "REPEATER", "ROUTER_LATE": "REPEATER", "ROUTER_CLIENT": "REPEATER",
@@ -387,7 +414,7 @@ def read_meshtastic(port: str, baud: int = 115200, hop_limit: int = 0,
     if not port:
         raise MeshUnavailable("no Meshtastic serial port")
     try:
-        from meshtastic.serial_interface import SerialInterface
+        import meshtastic  # noqa: F401
     except Exception as e:
         raise MeshUnavailable(f"meshtastic library not available: {e}")
     if not _SERIAL_LOCK.acquire(timeout=max(timeout, 30.0)):
@@ -401,7 +428,7 @@ def read_meshtastic(port: str, baud: int = 115200, hop_limit: int = 0,
     def _worker() -> None:
         iface = None
         try:
-            iface = SerialInterface(devPath=port)   # connects + loads the node DB
+            iface = open_meshtastic_iface(port)   # connects + loads the node DB
             if hop_limit:
                 _maybe_set_meshtastic_hops(iface, hop_limit)
             if announce:

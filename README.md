@@ -1,6 +1,6 @@
 # WDGWars Mesh + ADS-B Uploader
 
-Windows tray app that feeds live aircraft and LoRa mesh nodes to [WDGWars](https://wdgwars.pl), with a local dashboard and map.
+Tray app (Windows + Debian Linux) that feeds live aircraft and LoRa mesh nodes to [WDGWars](https://wdgwars.pl), with a local dashboard and map.
 
 ## 📡 Description
 
@@ -21,7 +21,27 @@ It runs in the tray, watches whatever radios are plugged in, and uploads on a sc
 
 ## 📦 Requirements
 
-Windows, Python 3.11+, and at least one radio. An API key from your [WDGWars profile](https://wdgwars.pl/profile) is what the uploads are credited to.
+Windows or Debian 13 (trixie), Python 3.11+, and at least one radio. An API key from your [WDGWars profile](https://wdgwars.pl/profile) is what the uploads are credited to.
+
+## 🐧 Debian / Raspberry Pi
+
+This fork runs natively on Debian trixie (tested on a uConsole CM4). Differences from Windows:
+
+- **Config** lives in `~/.config/wdgwars-uploader/config.json` (not `%APPDATA%`).
+- **ADS-B** comes from the distro decoder, never a bundled one: `sudo apt install dump1090-fa` (or readsb) and the app reads `/run/dump1090-fa/aircraft.json` (the Linux default). Any aircraft.json URL/file works via Settings. The app never launches a decoder on Linux — the system service owns the SDR.
+- **Mesh over TCP**: set a mesh device's port to `tcp:localhost` (or `tcp:host:4403`) to read a local [meshtasticd](https://meshtastic.org/docs/software/linux-native/) through the Meshtastic TCP API — no USB radio needed. Serial (`/dev/ttyUSB0`, `/dev/ttyACM0`) and BLE work as on Windows.
+- **Tray** uses pystray's AppIndicator backend (`sudo apt install python3-gi gir1.2-ayatanaappindicator3-0.1`). Without a tray host the app runs headless and the dashboard at `http://127.0.0.1:8787/` does everything, including Quit.
+- **Start at login** is a systemd user service (`~/.config/systemd/user/wdgwars-uploader.service`), toggled from Settings/tray like on Windows; it also restarts the app on crashes.
+
+Install:
+
+```sh
+sudo apt install python3-venv python3-gi gir1.2-ayatanaappindicator3-0.1
+python3 -m venv --system-site-packages .venv
+.venv/bin/pip install -r requirements.txt pystray
+.venv/bin/python run_app.py            # tray (or headless) + dashboard
+.venv/bin/python run_app.py --detect   # list detected radios
+```
 
 ## 🤝 Community
 

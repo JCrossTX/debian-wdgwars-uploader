@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -161,10 +162,12 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 class _HTTPServer(ThreadingHTTPServer):
-    # Exclusive bind: on Windows the default (SO_REUSEADDR) lets a second process
-    # bind the same port, splitting connections. False makes bind() fail when the
-    # port is taken, so the port-fallback loop below picks the next free one.
-    allow_reuse_address = False
+    # Exclusive bind on Windows: there SO_REUSEADDR lets a second process bind
+    # the same port, splitting connections, so False makes bind() fail and the
+    # port-fallback loop below picks the next free one. On Linux SO_REUSEADDR
+    # cannot steal a live listener - it only skips TIME_WAIT, without which a
+    # restart lands on the fallback port and stale dashboard links break.
+    allow_reuse_address = sys.platform != "win32"
     daemon_threads = True
 
 

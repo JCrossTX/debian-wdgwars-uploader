@@ -231,10 +231,33 @@ class MeshtasticWorker(threading.Thread):
                 self.store.put(d)
 
     def _open_iface(self, deadline: float = _NODEDB_WAIT + 30.0):
-        """Open the SerialInterface in a sub-thread with a hard deadline - the
+        """Open the interface in a sub-thread with a hard deadline - the
         meshtastic connect can deadlock un-interruptibly on a wedged port, which must
         not block the worker forever (it retries instead).
+
+        A ``tcp:HOST[:PORT]`` port talks to the Meshtastic TCP API (e.g. a local
+        meshtasticd) instead of a serial device; none of the serial wake/reset
+        workarounds apply there.
         """
+        tcp = mesh.tcp_host(self.port)
+        if tcp is not None:
+            box: dict[str, Any] = {}
+
+            def _open_tcp():
+                try:
+                    box["iface"] = mesh.open_meshtastic_iface(self.port)
+                except Exception as e:  # noqa: BLE001
+                    box["err"] = e
+
+            t = threading.Thread(target=_open_tcp, name=f"open-{self.port}", daemon=True)
+            t.start()
+            t.join(deadline)
+            if "iface" in box:
+                return box["iface"]
+            if "err" in box:
+                raise box["err"]
+            raise TimeoutError(f"meshtastic TCP connect to {self.port} exceeded {deadline:.0f}s")
+
         from meshtastic.serial_interface import SerialInterface
 
         class _PatientSerialInterface(SerialInterface):

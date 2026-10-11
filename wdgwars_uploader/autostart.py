@@ -1,7 +1,9 @@
-"""Start with Windows via the per-user Run registry key
-(``HKCU\\...\\Run`` — no admin needed). Mid-session crash-restart is handled
-separately by :mod:`wdgwars_uploader.watchdog`. All launches use ``--boot`` so
-the dashboard doesn't pop open at every logon.
+"""Start at login: on Windows via the per-user Run registry key
+(``HKCU\\...\\Run`` — no admin needed), on Linux via a systemd *user* service
+(no root needed; ``Restart=on-failure`` also covers crash-restart there).
+Mid-session crash-restart on Windows is handled separately by
+:mod:`wdgwars_uploader.watchdog`. All launches use ``--boot`` so the dashboard
+doesn't pop open at every logon.
 """
 
 from __future__ import annotations
@@ -126,9 +128,76 @@ def _launch_command() -> str:
     return f'"{exe}" {args}'
 
 
+# --- Linux: systemd user service ---------------------------------------------
+SYSTEMD_UNIT = "wdgwars-uploader.service"
+
+
+def _systemctl(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["systemctl", "--user", *args],
+                          capture_output=True, text=True, timeout=20)
+
+
+def _unit_path() -> Path:
+    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(base) / "systemd" / "user" / SYSTEMD_UNIT
+
+
+def _unit_text() -> str:
+    script = Path(__file__).resolve().parent.parent / "run_app.py"
+    return (
+        "[Unit]\n"
+        "Description=WDGWars Mesh + ADS-B Uploader\n"
+        "After=network-online.target\n"
+        "\n"
+        "[Service]\n"
+        f"ExecStart={sys.executable} {script} --boot\n"
+        "Restart=on-failure\n"
+        "RestartSec=10\n"
+        "\n"
+        "[Install]\n"
+        "WantedBy=default.target\n"
+    )
+
+
+def _is_enabled_linux() -> bool:
+    try:
+        return _systemctl("is-enabled", "--quiet", SYSTEMD_UNIT).returncode == 0
+    except Exception:
+        return False
+
+
+def _enable_linux() -> bool:
+    try:
+        unit = _unit_path()
+        unit.parent.mkdir(parents=True, exist_ok=True)
+        unit.write_text(_unit_text(), encoding="utf-8")
+        _systemctl("daemon-reload")
+        res = _systemctl("enable", SYSTEMD_UNIT)
+        if res.returncode == 0:
+            log.info("registered auto-start (systemd user unit)")
+            return True
+        log.warning("systemd enable failed: %s", (res.stderr or "").strip())
+    except Exception as e:
+        log.warning("auto-start enable failed: %s", e)
+    return False
+
+
+def _disable_linux() -> None:
+    try:
+        _systemctl("disable", SYSTEMD_UNIT)
+        try:
+            _unit_path().unlink()
+        except OSError:
+            pass
+        _systemctl("daemon-reload")
+        log.info("removed auto-start")
+    except Exception as e:
+        log.warning("auto-start disable failed: %s", e)
+
+
 def is_enabled() -> bool:
     if sys.platform != "win32":
-        return False
+        return _is_enabled_linux()
     import winreg
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_READ) as k:
@@ -140,7 +209,7 @@ def is_enabled() -> bool:
 
 def enable() -> bool:
     if sys.platform != "win32":
-        return False
+        return _enable_linux()
     import winreg
     ok = False
     try:
@@ -156,6 +225,7 @@ def enable() -> bool:
 
 def disable() -> None:
     if sys.platform != "win32":
+        _disable_linux()
         return
     import winreg
     try:

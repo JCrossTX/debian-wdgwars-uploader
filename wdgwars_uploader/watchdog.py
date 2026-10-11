@@ -56,8 +56,12 @@ def _heartbeat_age() -> float | None:
 
 def _kill(pid: int) -> None:
     try:
-        subprocess.run(["taskkill", "/F", "/PID", str(pid)],
-                       capture_output=True, timeout=10, creationflags=_NO_WINDOW)
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/F", "/PID", str(pid)],
+                           capture_output=True, timeout=10, creationflags=_NO_WINDOW)
+        else:
+            import signal
+            os.kill(pid, signal.SIGKILL)
     except Exception as e:
         log.warning("could not kill pid %s: %s", pid, e)
 
@@ -140,16 +144,34 @@ def _watchdog_cmd(pid: int) -> list[str]:
 
 
 def spawn(app_pid: int) -> None:
-    """Launch a detached watchdog watching ``app_pid``."""
-    if sys.platform != "win32":
+    """Launch a detached watchdog watching ``app_pid``.
+
+    Skipped when systemd supervises this process (the autostart user unit sets
+    ``Restart=on-failure``): systemd both restarts the app itself and would kill
+    a sidecar with the rest of the cgroup on exit, so one would be useless and
+    a second supervisor would double-restart.
+    """
+    if sys.platform != "win32" and os.environ.get("INVOCATION_ID"):
         return
+    popen_kw: dict = {"creationflags": _NO_WINDOW} if sys.platform == "win32" \
+        else {"start_new_session": True}
     try:
-        subprocess.Popen(_watchdog_cmd(app_pid), creationflags=_NO_WINDOW, **_DETACH)
+        subprocess.Popen(_watchdog_cmd(app_pid), **popen_kw, **_DETACH)
     except Exception as e:
         log.warning("could not spawn watchdog: %s", e)
 
 
 def _pid_alive(pid: int) -> bool:
+    if sys.platform != "win32":
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except OSError:
+            return False
     try:
         out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
                              capture_output=True, text=True, timeout=10, creationflags=_NO_WINDOW)
@@ -182,8 +204,6 @@ def _crash_looping() -> bool:
 def run(app_pid: int) -> None:
     """Watch ``app_pid``; when it exits, restart the app unless it stopped
     cleanly or is crash-looping."""
-    if sys.platform != "win32":
-        return
     time.sleep(10)   # grace period so a just-started app isn't judged as hung
     while _pid_alive(app_pid):
         age = _heartbeat_age()
@@ -199,7 +219,9 @@ def run(app_pid: int) -> None:
         log.warning("app is crash-looping; watchdog backing off")
         return
     log.warning("app died unexpectedly (pid %s); restarting", app_pid)
+    popen_kw: dict = {"creationflags": _NO_WINDOW} if sys.platform == "win32" \
+        else {"start_new_session": True}
     try:
-        subprocess.Popen(_app_cmd(), creationflags=_NO_WINDOW, **_DETACH)
+        subprocess.Popen(_app_cmd(), **popen_kw, **_DETACH)
     except Exception as e:
         log.warning("restart failed: %s", e)

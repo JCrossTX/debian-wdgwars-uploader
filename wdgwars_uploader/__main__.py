@@ -65,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--window", metavar="URL", help="open the dashboard as a native window (internal)")
     ap.add_argument("--watchdog", type=int, metavar="PID", help=argparse.SUPPRESS)
     ap.add_argument("--boot", action="store_true",
-                    help="launched at Windows logon: start in the tray without opening the dashboard")
+                    help="launched at logon/boot: start in the background without opening the dashboard")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
 

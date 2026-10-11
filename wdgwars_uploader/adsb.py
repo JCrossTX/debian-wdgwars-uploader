@@ -81,6 +81,13 @@ def install_dump1090(progress: Callable[[str], None] | None = None) -> str:
         if progress:
             progress(m)
 
+    if sys.platform != "win32":
+        # The downloadable build is a Windows exe. On Debian the decoder is a
+        # packaged system service that owns the SDR and serves the JSON itself.
+        raise RuntimeError(
+            "install a decoder from the distro instead: sudo apt install dump1090-fa "
+            "(then point Settings at /run/dump1090-fa/aircraft.json)")
+
     existing = find_dump1090()
     if existing:
         say("already installed")

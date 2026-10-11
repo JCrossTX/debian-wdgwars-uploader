@@ -3,9 +3,9 @@
 * Serial detection (MeshCore/Meshtastic boards, and the PortaPack console) uses
   pyserial, which enumerates COM ports with their VID/PID - reliable and
   dependency-light.
-* An RTL-SDR is *not* a serial device, so it is detected by querying Windows PnP
-  through PowerShell for the Realtek DVB VID/PID. This reads the same data as
-  ``Get-PnpDevice`` and needs no native driver access.
+* An RTL-SDR is *not* a serial device, so it is detected by USB VID/PID: on
+  Windows by querying PnP through PowerShell, on Linux by reading sysfs
+  (``/sys/bus/usb/devices``). Neither needs native driver access.
 
 Two ADS-B radios are possible: an RTL-SDR (decoded on the PC by dump1090) and a
 PortaPack/HackRF running Mayhem (decoded on-device and read back over its CDC
@@ -17,6 +17,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .mayhem import MAYHEM_IDS
 
@@ -166,10 +167,32 @@ def _rtlsdr_label(reported: str) -> str:
     return reported
 
 
+def _rtlsdr_present_linux() -> tuple[bool, str]:
+    """Detect an RTL-SDR by walking sysfs for a known VID/PID. The product
+    string comes straight from the dongle's USB descriptor."""
+    for dev in Path("/sys/bus/usb/devices").glob("*"):
+        try:
+            vid = int((dev / "idVendor").read_text().strip(), 16)
+            pid = int((dev / "idProduct").read_text().strip(), 16)
+        except (OSError, ValueError):
+            continue
+        if (vid, pid) not in RTLSDR_IDS:
+            continue
+        try:
+            product = (dev / "product").read_text().strip()
+        except OSError:
+            product = "RTL2832U"
+        return True, _rtlsdr_label(product)
+    return False, ""
+
+
 def _rtlsdr_present() -> tuple[bool, str]:
-    """Detect an RTL-SDR via Windows PnP. Returns (present, label)."""
+    """Detect an RTL-SDR. Returns (present, label)."""
     if sys.platform != "win32":
-        return False, ""
+        try:
+            return _rtlsdr_present_linux()
+        except OSError:
+            return False, ""
     # Build a regex of VID_xxxx&PID_xxxx patterns for the known IDs.
     patterns = "|".join(f"VID_{v:04X}&PID_{p:04X}" for v, p in RTLSDR_IDS)
     # Prefer the bus-reported product string (from the dongle) over FriendlyName

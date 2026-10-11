@@ -1,7 +1,8 @@
 """Configuration storage.
 
-Config lives in ``%APPDATA%\\WDGWarsUploader\\config.json``. The API key is the
-only secret; it is stored in plain text in the roaming profile, at the same trust
+Config lives in ``%APPDATA%\\WDGWarsUploader\\config.json`` on Windows and
+``$XDG_CONFIG_HOME/wdgwars-uploader/config.json`` (``~/.config/...``) on Linux.
+The API key is the only secret; it is stored in plain text at the same trust
 level as the rest of the account, and is never returned by the dashboard API.
 """
 
@@ -9,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -85,10 +87,26 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "last_upload_ts": 0,
 }
 
+if sys.platform != "win32":
+    # On Debian a packaged decoder (dump1090-fa / readsb) runs as a system
+    # service that owns the RTL-SDR and writes aircraft.json under /run; the app
+    # reads that file and must never launch a second decoder to fight it over
+    # the dongle. The default URL is also dropped: :8080 is a popular port for
+    # other SDR web UIs, not a decoder, on a typical Linux radio box.
+    DEFAULT_CONFIG.update({
+        "adsb_json_url": "",
+        "adsb_json_file": "/run/dump1090-fa/aircraft.json",
+        "dump1090_autostart": False,
+    })
+
 
 def config_dir() -> Path:
-    base = os.environ.get("APPDATA") or str(Path.home())
-    d = Path(base) / "WDGWarsUploader"
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA") or str(Path.home())
+        d = Path(base) / "WDGWarsUploader"
+    else:
+        base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+        d = Path(base) / "wdgwars-uploader"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
