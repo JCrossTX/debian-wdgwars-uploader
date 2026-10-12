@@ -29,7 +29,7 @@ except Exception:  # pragma: no cover - import-time environment dependent
     pystray = None  # type: ignore[assignment]
 from PIL import Image, ImageDraw
 
-from . import APP_NAME, __version__, adsb, autostart, mayhem, watchdog
+from . import APP_NAME, __version__, adsb, autostart, gps, mayhem, watchdog
 from .config import Config, INTERVAL_CHOICES_HOURS, config_dir
 from .core import UploaderCore
 from .logutil import setup_logging
@@ -85,17 +85,10 @@ class UploaderApp:
 
         watchdog.spawn(os.getpid())   # relaunch on an unexpected exit
 
-        if pystray is not None:
-            try:
-                self._icon = pystray.Icon(APP_NAME, _make_icon(True), APP_NAME, menu=self._menu())
-                self._icon.run()  # blocks main thread until stop()
-                return
-            except Exception:
-                log.exception("tray unavailable; continuing headless")
-                self._icon = None
-        log.info("running headless (no system tray); dashboard at %s", url or self.server.url)
         if sys.platform != "win32":
-            # A systemd stop / Ctrl-C must still persist the un-uploaded queue.
+            # A systemd stop / logout / Ctrl-C must still persist the un-uploaded
+            # queue, with OR without a tray: PyGObject wakes the GLib main loop on
+            # signals, so this handler also runs while pystray owns the main thread.
             import signal
             for sig in (signal.SIGTERM, signal.SIGINT):
                 try:
@@ -103,6 +96,24 @@ class UploaderApp:
                         target=self.quit, daemon=True).start())
                 except (ValueError, OSError):
                     pass
+
+        if pystray is not None:
+            try:
+                self._icon = pystray.Icon(APP_NAME, _make_icon(True), APP_NAME, menu=self._menu())
+                self._icon.run()  # blocks main thread until stop()
+                return
+            except Exception:
+                if self._stop.is_set():
+                    # Already quitting: pystray's GTK teardown raises on a session
+                    # without a notification daemon (CloseNotification on a missing
+                    # org.freedesktop.Notifications). The queue is persisted and the
+                    # workers stopped by quit() before the icon is stopped, so this is
+                    # harmless - do not report the tray as broken at every shutdown.
+                    log.debug("tray teardown error during shutdown", exc_info=True)
+                    return
+                log.exception("tray unavailable; continuing headless")
+                self._icon = None
+        log.info("running headless (no system tray); dashboard at %s", url or self.server.url)
         self._stop.wait()  # until quit() — via the dashboard's Quit or a signal
 
     def _status_loop(self) -> None:
@@ -174,6 +185,7 @@ class UploaderApp:
             "mesh_transport", "mesh_port", "mesh_baud", "mesh_ble_address",
             "mesh_advert_minutes", "mesh_devices", "mesh_hop_limit",
             "dump1090_gain", "start_on_boot", "upload_on_start",
+            "location_source", "gpsd_host", "gpsd_port", "gps_max_fix_age_secs",
         }
         clean = {k: v for k, v in values.items() if k in allowed}
         key_changed = "api_key" in clean and clean["api_key"] != self.cfg.get("api_key")
@@ -237,7 +249,7 @@ class UploaderApp:
         except Exception:
             pass
         for stopper in (self.scheduler.stop, self.poller.stop, self.core.capture.stop,
-                        self.server.stop, adsb.stop_dump1090, mayhem.stop):
+                        self.server.stop, adsb.stop_dump1090, mayhem.stop, gps.stop):
             try:
                 stopper()
             except Exception:

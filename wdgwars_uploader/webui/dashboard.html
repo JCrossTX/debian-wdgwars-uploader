@@ -242,6 +242,7 @@ select:focus,input:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 8p
         <div class="dev"><div class="dot" id="d-sdr"></div><div><div class="n">RTL-SDR</div><div class="d" id="d-sdr-t">scanning…</div></div></div>
         <div class="dev"><div class="dot" id="d-pp"></div><div><div class="n">PortaPack</div><div class="d" id="d-pp-t">scanning…</div></div></div>
         <div class="dev"><div class="dot" id="d-mesh"></div><div><div class="n" id="d-mesh-n">Mesh</div><div class="d" id="d-mesh-t">scanning…</div></div></div>
+        <div class="dev"><div class="dot" id="d-gps"></div><div><div class="n">GPS</div><div class="d" id="d-gps-t">scanning…</div></div></div>
         <div class="dev"><div class="dot on"></div><div><div class="n">Uploader</div><div class="d" id="d-up">idle</div></div></div>
       </div>
       <div class="uploadbar">
@@ -335,6 +336,29 @@ select:focus,input:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 8p
           <input type="text" id="f-adsburl" placeholder="http://localhost:8080/data/aircraft.json">
         </div>
         <div class="field">
+          <label>ADS-B aircraft.json file (Linux decoder service: readsb → /run/readsb/aircraft.json, dump1090-fa → /run/dump1090-fa/aircraft.json)</label>
+          <input type="text" id="f-adsbfile" placeholder="/run/readsb/aircraft.json">
+        </div>
+        <div class="field">
+          <label>Receiver location — source (anchors the outlier filters; the decoder reads gpsd itself)</label>
+          <select id="f-locsrc">
+            <option value="auto">Auto — GPS via gpsd when it has a fix, else manual</option>
+            <option value="gpsd">GPS via gpsd only</option>
+            <option value="manual">Manual latitude / longitude only</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Manual receiver latitude, longitude (decimal degrees)</label>
+          <div class="row">
+            <input type="text" id="f-lat" placeholder="33.12345">
+            <input type="text" id="f-lon" placeholder="-96.54321">
+          </div>
+        </div>
+        <div class="field">
+          <label>gpsd host:port</label>
+          <input type="text" id="f-gpsd" placeholder="127.0.0.1:2947">
+        </div>
+        <div class="field">
           <label>Sources</label>
           <div class="row">
             <label class="switch"><input type="checkbox" id="f-adsb"> ADS-B (RTL-SDR or PortaPack)</label>
@@ -351,12 +375,12 @@ select:focus,input:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 8p
           <input type="number" id="f-advert" min="0" max="1440" step="5" placeholder="60">
         </div>
         <div class="field">
-          <label>Meshtastic hop limit (1–7, higher = more reach)</label>
-          <input type="number" id="f-hops" min="1" max="7" step="1" placeholder="7">
+          <label>Meshtastic hop limit (0 = leave the radio's own setting alone; 1–7 writes it to the radio, which reboots)</label>
+          <input type="number" id="f-hops" min="0" max="7" step="1" placeholder="0">
         </div>
         <div class="field">
           <label>Startup</label>
-          <label class="switch"><input type="checkbox" id="f-boot"> Start automatically with Windows</label>
+          <label class="switch"><input type="checkbox" id="f-boot"> <span id="f-boot-label">Start automatically at login</span></label>
         </div>
         <div class="field" style="align-self:end">
           <button class="btn" id="btn-save">Save settings</button>
@@ -459,6 +483,17 @@ function render(s){
   } else if(mesh.present){ mtxt = anyConn?`${mesh.contacts||0} nodes`:'not responding'; }
   else { mtxt = 'not detected'; }
   $("#d-mesh-t").textContent = mtxt;
+  // Receiver location: a GPS fix via gpsd, else the manual setting.
+  const gps=s.devices.gps||{}, rc=s.receiver||null, gfix=gps.fix||null, hasFix=!!(gfix && gps.mode>=2);
+  const rcTxt = rc ? `${(+rc.lat).toFixed(4)}, ${(+rc.lon).toFixed(4)}` : "";
+  setDot("#d-gps", !gps.enabled ? (rc ? "on" : "off") : hasFix ? "on" : (gps.connected && gps.device) ? "warn" : "off");
+  $("#d-gps-t").textContent =
+      !gps.enabled      ? (rc ? `manual location ${rcTxt}` : "off — no location set")
+    : !gps.connected    ? `gpsd not reachable (${gps.host||"?"})` + (rc ? ` · using manual ${rcTxt}` : "")
+    : !gps.device       ? "gpsd running — no GPS receiver" + (rc ? ` · using manual ${rcTxt}` : "")
+    : hasFix            ? `${gps.mode}D fix ${(+gfix.lat).toFixed(4)}, ${(+gfix.lon).toFixed(4)} · ${gps.sats_used||0} sats`
+                          + (gps.fix_age>120 ? ` · ${fmtDur(gps.fix_age)} ago` : "")
+    : `${gps.driver||gps.device} — acquiring (${gps.sats_used||0}/${gps.sats_seen||0} sats)` + (rc ? ` · using manual ${rcTxt}` : "");
   $("#d-up").textContent = s.upload_in_progress ? "UPLOADING…" : "idle";
 
   // Big number = unique targets COLLECTED this session (includes the queued).
@@ -499,6 +534,16 @@ function render(s){
   // settings (only fill when not being edited)
   const c=s.config||{};
   fillIfIdle("#f-adsburl", c.adsb_json_url||"");
+  fillIfIdle("#f-adsbfile", c.adsb_json_file||"");
+  fillIfIdle("#f-locsrc", c.location_source||"auto");
+  fillIfIdle("#f-lat", c.adsb_home_lat==null ? "" : c.adsb_home_lat);
+  fillIfIdle("#f-lon", c.adsb_home_lon==null ? "" : c.adsb_home_lon);
+  fillIfIdle("#f-gpsd", `${c.gpsd_host||"127.0.0.1"}:${c.gpsd_port||2947}`);
+  // Platform-specific wording: autostart is a Run key on Windows, a systemd
+  // user service on Linux; serial ports are COMx vs /dev/tty* (or tcp:HOST).
+  const onLinux = c.platform ? c.platform!=="win32" : false;
+  $("#f-boot-label").textContent = onLinux ? "Start at login (systemd user service)" : "Start automatically with Windows";
+  window._portPlaceholder = onLinux ? "auto / /dev/ttyACM0 / tcp:localhost" : "auto / COM13";
   fillChk("#f-adsb", c.adsb_enabled); fillChk("#f-mesh", c.mesh_enabled); fillChk("#f-boot", c.start_on_boot);
   fillIfIdle("#f-advert", c.mesh_advert_minutes);
   fillIfIdle("#f-hops", c.mesh_hop_limit);
@@ -664,11 +709,20 @@ $("#btn-save").onclick=async()=>{
     interval_hours:+$("#interval").value,
     adsb_enabled:$("#f-adsb").checked, mesh_enabled:$("#f-mesh").checked,
     adsb_json_url:$("#f-adsburl").value.trim(),
+    adsb_json_file:$("#f-adsbfile").value.trim(),
+    location_source:$("#f-locsrc").value,
     mesh_devices:collectMeshDevs(),
     mesh_advert_minutes:parseInt($("#f-advert").value)||0,
-    mesh_hop_limit:Math.min(7,Math.max(1,parseInt($("#f-hops").value)||7)),
     start_on_boot:$("#f-boot").checked,
   };
+  // 0 is a real value here (don't touch the radio's LoRa config); a blank field
+  // leaves the stored value unchanged.
+  const hv=parseInt($("#f-hops").value); if(!isNaN(hv)) cfg.mesh_hop_limit=Math.min(7,Math.max(0,hv));
+  // Receiver location: blank lat/lon clears the manual setting; gpsd as host[:port].
+  const la=parseFloat($("#f-lat").value), lo=parseFloat($("#f-lon").value);
+  cfg.adsb_home_lat = isNaN(la) ? null : la; cfg.adsb_home_lon = isNaN(lo) ? null : lo;
+  const gp=$("#f-gpsd").value.trim(); if(gp){ const i=gp.lastIndexOf(":"); const h=i>0?gp.slice(0,i):gp; const pt=i>0?parseInt(gp.slice(i+1)):NaN;
+    cfg.gpsd_host=h||"127.0.0.1"; cfg.gpsd_port=isNaN(pt)?2947:pt; }
   const key=$("#f-key").value.trim(); if(key) cfg.api_key=key;
   const m=$("#save-msg"); m.textContent="saving…"; m.className="msg";
   const r=await api("/api/config","POST",cfg);
@@ -793,7 +847,7 @@ function addDevRow(d){
   d=d||{port:'auto',protocol:'meshcore',enabled:true};
   const row=document.createElement('div'); row.className='devrow';
   row.innerHTML=`<label class="switch" style="margin:0" title="enabled"><input type="checkbox" class="d-en" ${d.enabled!==false?'checked':''}></label>
-    <input type="text" class="d-port" value="${d.port||'auto'}" placeholder="auto / COM13">
+    <input type="text" class="d-port" value="${d.port||'auto'}" placeholder="${window._portPlaceholder||'auto / COM13'}">
     <select class="d-proto"><option value="meshcore"${(d.protocol||'meshcore')==='meshcore'?' selected':''}>MeshCore</option><option value="meshtastic"${d.protocol==='meshtastic'?' selected':''}>Meshtastic</option></select>
     <button class="btn ghost d-rm" type="button" title="remove">✕</button>`;
   row.querySelector('.d-rm').onclick=()=>row.remove();

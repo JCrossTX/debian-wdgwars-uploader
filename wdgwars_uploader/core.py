@@ -11,11 +11,12 @@ All of it feeds a shared :class:`~wdgwars_uploader.state.LiveState`.
 from __future__ import annotations
 
 import logging
+import sys
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from . import adsb, detect, mayhem, mesh, mesh_capture, prereq, watchdog
+from . import adsb, detect, gps, mayhem, mesh, mesh_capture, prereq, watchdog
 from .config import Config, config_dir
 from .state import LiveState
 from .uploader import WDGWarsClient
@@ -106,7 +107,15 @@ class UploaderCore:
             "mesh_devices": c.get("mesh_devices", []),
             "mesh_hop_limit": c.get("mesh_hop_limit", 7),
             "adsb_json_url": c.get("adsb_json_url", ""),
+            "adsb_json_file": c.get("adsb_json_file", ""),
             "adsb_source": c.get("adsb_source", "auto"),
+            "adsb_home_lat": c.get("adsb_home_lat"),
+            "adsb_home_lon": c.get("adsb_home_lon"),
+            "location_source": c.get("location_source", "auto"),
+            "gpsd_host": c.get("gpsd_host", gps.DEFAULT_HOST),
+            "gpsd_port": c.get("gpsd_port", gps.DEFAULT_PORT),
+            # Lets the dashboard word platform-specific settings correctly.
+            "platform": "win32" if sys.platform == "win32" else "linux",
             "adsb_active_source": adsb.active_source(),
             "mayhem_port": c.get("mayhem_port", "auto"),
             "dump1090_gain": c.get("dump1090_gain"),
@@ -132,6 +141,12 @@ class UploaderCore:
                                  port=det.portapack_port, label=det.portapack_label)
         self.state.update_device("mesh", present=det.mesh_present, port=port or "",
                                  transport=self.cfg.get("mesh_transport", "serial"))
+        # Receiver location: keep the gpsd client matched to the config and publish
+        # the GPS status plus the effective location (GPS fix or manual setting).
+        cfg = self.cfg.as_dict()
+        gps.ensure_client(cfg)
+        self.state.update_device("gps", **gps.status())
+        self.state.receiver = adsb.receiver_location(cfg)
         try:
             self.state.prereqs = {"checks": prereq.check_all(det, self.cfg.as_dict())}
             for c in self.state.prereqs["checks"]:
@@ -198,7 +213,8 @@ class UploaderCore:
         self.capture.persist()          # save the growing store (throttled)
         # Drop garbage positions (corrupt Position packets land nodes mid-ocean)
         # before they skew the map or upload with a bad location.
-        nodes = mesh.filter_outlier_positions(self.capture.snapshot())
+        nodes = mesh.filter_outlier_positions(self.capture.snapshot(),
+                                              home=adsb.receiver_home(cfg))
         self.state.update_mesh(nodes)
         status = self.capture.status()
         any_conn = any(s.get("connected") for s in status)

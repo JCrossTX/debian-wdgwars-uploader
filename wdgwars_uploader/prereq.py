@@ -63,12 +63,21 @@ def check_adsb_source_linux(cfg: dict) -> dict:
         if p.exists():
             return _check("ADS-B decoder", False, f"{file} exists but is not aircraft JSON",
                           fix="Point Settings at the decoder's aircraft.json "
-                              "(dump1090-fa writes /run/dump1090-fa/aircraft.json, "
-                              "readsb writes /run/readsb/aircraft.json).")
+                              "(readsb writes /run/readsb/aircraft.json, "
+                              "dump1090-fa writes /run/dump1090-fa/aircraft.json).")
+    # A decoder IS running, just not the one Settings points at.
+    from .config import LINUX_AIRCRAFT_JSON_CANDIDATES
+    for _, cand in LINUX_AIRCRAFT_JSON_CANDIDATES:
+        if cand != file and Path(cand).exists() and adsb.from_file(cand) is not None:
+            return _check("ADS-B decoder", False, f"running, but writing {cand}",
+                          detail=f"Settings: {file or url or '(blank)'}",
+                          fix=f"Set the ADS-B aircraft.json file in Settings to {cand}.")
     return _check("ADS-B decoder", False, "no aircraft source reachable",
-                  fix="Install one: sudo apt install dump1090-fa  (writes "
-                      "/run/dump1090-fa/aircraft.json), or set the aircraft JSON "
-                      "URL/file in Settings to wherever your decoder serves it.")
+                  fix="Install one: ./install-dragonos-pi64.sh builds readsb with RTL-SDR support "
+                      "(the archive readsb lacks librtlsdr; writes /run/readsb/aircraft.json), "
+                      "or dump1090-fa from FlightAware's repo (/run/dump1090-fa/aircraft.json). "
+                      "Check it is running (systemctl status readsb) and that Settings points "
+                      "at its aircraft.json file or URL.")
 
 
 def rtlsdr_driver_state(rtlsdr_present: bool) -> dict:
@@ -121,10 +130,36 @@ def portapack_state(port: str) -> dict:
                       "1090 MHz antenna, and close anything else holding the COM port.")
 
 
+def check_receiver_location(cfg: dict) -> dict:
+    """Is the receiver's own position known? It anchors the outlier filters for
+    aircraft and mesh nodes, and the decoder needs it for single-frame positions."""
+    from . import adsb, gps
+    loc = adsb.receiver_location(cfg)
+    if loc:
+        how = "GPS fix via gpsd" if loc.get("source") == "gps" else "manual setting"
+        return _check("Receiver location", True, f"{loc['lat']:.4f}, {loc['lon']:.4f} ({how})")
+    st = gps.status()
+    source = str(cfg.get("location_source") or "auto").lower()
+    if source != "manual" and st.get("enabled"):
+        if not st.get("connected"):
+            why = f"gpsd not reachable at {st.get('host')}"
+        elif not st.get("device"):
+            why = "gpsd is running but has no GPS receiver"
+        else:
+            why = f"GPS acquiring ({st.get('sats_used', 0)}/{st.get('sats_seen', 0)} satellites)"
+    else:
+        why = "not set"
+    return _check("Receiver location", False, why,
+                  fix="Plug in a USB GPS receiver (gpsd picks it up automatically) or enter "
+                      "the receiver latitude/longitude in Settings. Without it, glitched "
+                      "aircraft and mesh positions cannot be filtered against the receiver, "
+                      "and the decoder cannot place single-frame ADS-B positions.")
+
+
 def check_all(devices, cfg: dict) -> list[dict]:
     from . import adsb
     source, port = adsb.resolve_source(cfg, devices)
-    checks = [check_python_deps()]
+    checks = [check_python_deps(), check_receiver_location(cfg)]
     if source == "mayhem":
         # dump1090 and the WinUSB driver are irrelevant when the PortaPack does the
         # decoding on-device, so they are not reported as missing.

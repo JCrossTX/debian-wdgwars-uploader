@@ -53,6 +53,19 @@ MESH_SERIAL_IDS = {
     (0x1915, 0x520F): "nRF52840 (Nordic)",
 }
 
+# --- GPS receivers ----------------------------------------------------------
+# Not radios this app reads itself: on Linux gpsd owns them and serves the fix
+# (see wdgwars_uploader.gps). Recognised so they are never offered as a mesh
+# port and so --detect can say what they are.
+GPS_SERIAL_IDS = {
+    (0x1546, 0x01A5): "u-blox 5",
+    (0x1546, 0x01A6): "u-blox 6",
+    (0x1546, 0x01A7): "u-blox 7",
+    (0x1546, 0x01A8): "u-blox 8",
+    (0x1546, 0x01A9): "u-blox 9",
+}
+GPS_TEXT_HINTS = ("gps", "gnss", "u-blox", "ublox", "globalsat", "garmin")
+
 # Textual hints in the port description/manufacturer that suggest a mesh board
 # even when the VID/PID is unknown.
 MESH_TEXT_HINTS = ("heltec", "meshcore", "meshtastic", "silicon labs", "cp210",
@@ -72,6 +85,7 @@ class SerialDevice:
     chip_label: str = ""
     strong: bool = False   # True = matched a known mesh VID/PID (not just text)
     is_portapack: bool = False
+    is_gps: bool = False
 
 
 @dataclass
@@ -104,6 +118,10 @@ class DetectResult:
         return self.rtlsdr_present or self.portapack_present
 
     @property
+    def gps_ports(self) -> list[SerialDevice]:
+        return [d for d in self.serial_ports if d.is_gps]
+
+    @property
     def mesh_candidates(self) -> list[SerialDevice]:
         # Confirmed VID/PID matches rank ahead of text-hint guesses, so
         # pick_mesh_port() prefers a real mesh board over an unrelated CP210x.
@@ -127,8 +145,18 @@ def _list_serial() -> list[SerialDevice]:
         chip = ""
         is_mesh = False
         strong = False
+        is_gps = False
+        blob = f"{desc} {manu}".lower()
         is_pp = vid is not None and pid is not None and (vid, pid) in MAYHEM_IDS
-        if is_pp:
+        if vid is not None and pid is not None and (vid, pid) in GPS_SERIAL_IDS:
+            is_gps = True
+            chip = GPS_SERIAL_IDS[(vid, pid)] + " GPS receiver"
+        elif not is_pp and not ((vid, pid) in MESH_SERIAL_IDS) and any(h in blob for h in GPS_TEXT_HINTS):
+            is_gps = True
+            chip = desc or manu
+        if is_gps:
+            pass   # a GPS is never a mesh candidate, whatever its serial chip
+        elif is_pp:
             # The PortaPack console is an ADS-B source, never a mesh node. Flag it
             # explicitly so "mesh_port: auto" can never grab it and hang on the
             # Mayhem shell waiting for MeshCore framing that will never come.
@@ -138,14 +166,13 @@ def _list_serial() -> list[SerialDevice]:
             is_mesh = True
             strong = True
         else:
-            blob = f"{desc} {manu}".lower()
             if any(h in blob for h in MESH_TEXT_HINTS):
                 is_mesh = True
                 chip = desc or manu
         out.append(SerialDevice(
             port=p.device, vid=vid, pid=pid, description=desc,
             manufacturer=manu, is_mesh_candidate=is_mesh, chip_label=chip, strong=strong,
-            is_portapack=is_pp,
+            is_portapack=is_pp, is_gps=is_gps,
         ))
     return out
 

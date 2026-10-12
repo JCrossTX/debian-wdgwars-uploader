@@ -82,11 +82,11 @@ def install_dump1090(progress: Callable[[str], None] | None = None) -> str:
             progress(m)
 
     if sys.platform != "win32":
-        # The downloadable build is a Windows exe. On Debian the decoder is a
+        # The downloadable build is a Windows exe. On Linux the decoder is a
         # packaged system service that owns the SDR and serves the JSON itself.
         raise RuntimeError(
-            "install a decoder from the distro instead: sudo apt install dump1090-fa "
-            "(then point Settings at /run/dump1090-fa/aircraft.json)")
+            "install a system decoder instead: ./install-dragonos-pi64.sh builds readsb "
+            "with RTL-SDR support (then point Settings at /run/readsb/aircraft.json)")
 
     existing = find_dump1090()
     if existing:
@@ -182,8 +182,20 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * r * math.asin(min(1.0, math.sqrt(a)))
 
 
-def receiver_home(cfg: dict[str, Any]) -> tuple[float, float] | None:
-    """The configured receiver location, or None if unset/invalid."""
+def receiver_location(cfg: dict[str, Any]) -> dict[str, Any] | None:
+    """The receiver location and where it came from: ``{"lat", "lon", "source"}``
+    with source ``"gps"`` (a fix from gpsd, see :mod:`wdgwars_uploader.gps`) or
+    ``"manual"`` (Settings). ``location_source`` decides which are allowed; None
+    when neither is available."""
+    from . import gps
+    source = str(cfg.get("location_source") or "auto").strip().lower()
+    if source != "manual":
+        fix = gps.current_fix(cfg.get("gps_max_fix_age_secs"))
+        if fix:
+            return {"lat": float(fix["lat"]), "lon": float(fix["lon"]), "source": "gps",
+                    "alt": fix.get("alt"), "mode": fix.get("mode"), "ts": fix.get("ts")}
+        if source == "gpsd":
+            return None
     lat, lon = cfg.get("adsb_home_lat"), cfg.get("adsb_home_lon")
     if lat is None or lon is None:
         return None
@@ -193,7 +205,14 @@ def receiver_home(cfg: dict[str, Any]) -> tuple[float, float] | None:
         return None
     if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
         return None
-    return lat, lon
+    return {"lat": lat, "lon": lon, "source": "manual"}
+
+
+def receiver_home(cfg: dict[str, Any]) -> tuple[float, float] | None:
+    """The receiver location as ``(lat, lon)``: the GPS fix when available and
+    allowed, else the manual setting, else None."""
+    loc = receiver_location(cfg)
+    return (loc["lat"], loc["lon"]) if loc else None
 
 
 def _valid_gain(gain: Any) -> float | None:

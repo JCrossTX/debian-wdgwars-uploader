@@ -18,16 +18,34 @@ from .logutil import setup_logging
 
 
 def _cmd_detect() -> int:
-    from . import detect
+    from . import detect, gps
     d = detect.detect()
     print(f"RTL-SDR : {'present - ' + d.rtlsdr_label if d.rtlsdr_present else 'not found'}")
     print(f"PortaPack: {'present on ' + d.portapack_port if d.portapack_present else 'not found'}")
+    cfg = Config().as_dict()
+    if str(cfg.get("location_source") or "auto").lower() == "manual":
+        print("GPS      : off (location source is manual)")
+    else:
+        host, port = gps._endpoint(cfg)
+        g = gps.query_once(host, port, timeout=4.0)
+        if not g["reachable"]:
+            print(f"GPS      : gpsd not reachable at {host}:{port}" + (f" ({g['error']})" if g["error"] else ""))
+        elif g["fix"]:
+            print(f"GPS      : {g['driver'] or 'receiver'} on {g['device']} via gpsd - "
+                  f"{g['fix']['mode']}D fix {g['fix']['lat']:.5f},{g['fix']['lon']:.5f}")
+        elif g["device"]:
+            print(f"GPS      : {g['driver'] or 'receiver'} on {g['device']} via gpsd - no fix yet "
+                  f"({g['sats_used']} satellites used)")
+        else:
+            print("GPS      : gpsd reachable, no GPS receiver attached")
     print("Serial ports:")
     if not d.serial_ports:
         print("  (none)")
     for s in d.serial_ports:
         if s.is_portapack:
             tag = "  <-- PortaPack ADS-B source (Mayhem console)"
+        elif s.is_gps:
+            tag = f"  <-- GPS receiver, read via gpsd ({s.chip_label})"
         elif s.is_mesh_candidate:
             # A USB-serial chip says nothing about the firmware: the same CH9102
             # carries Meshtastic on a Station G1 and MeshCore on other boards.

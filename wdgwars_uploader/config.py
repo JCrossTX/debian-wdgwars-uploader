@@ -44,6 +44,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # reference point for dropping implausible fixes before upload.
     "adsb_home_lat": None,
     "adsb_home_lon": None,
+    # Where the receiver location comes from (see wdgwars_uploader.gps):
+    #   "auto"   - a GPS fix from gpsd when there is one, else the manual lat/lon
+    #   "gpsd"   - GPS only; never fall back to the manual values
+    #   "manual" - the manual lat/lon only; gpsd is not contacted
+    "location_source": "auto",
+    "gpsd_host": "127.0.0.1",
+    "gpsd_port": 2947,
+    # A fix older than this (seconds) is ignored - a persisted fix from an earlier
+    # run, or a receiver that lost the sky. Generous on purpose: a stationary
+    # receiver's last fix is still right a day later.
+    "gps_max_fix_age_secs": 86400,
     # Where to read decoded aircraft from. Priority: url first, then file.
     # A running dump1090/tar1090/readsb serves this by default.
     "adsb_json_url": "http://localhost:8080/data/aircraft.json",
@@ -87,15 +98,41 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "last_upload_ts": 0,
 }
 
+# Where the Linux decoder services write aircraft.json. readsb is the usual one
+# on DragonOS Pi64 / Raspberry Pi OS / Debian (install-dragonos-pi64.sh builds
+# it with RTL-SDR support; the archive package lacks librtlsdr); dump1090-fa
+# comes from FlightAware's own apt repository.
+LINUX_AIRCRAFT_JSON_CANDIDATES = (
+    ("readsb", "/run/readsb/aircraft.json"),
+    ("dump1090-fa", "/run/dump1090-fa/aircraft.json"),
+    ("dump1090-mutability", "/run/dump1090-mutability/aircraft.json"),
+    ("dump1090", "/run/dump1090/aircraft.json"),
+)
+
+
+def default_aircraft_json_linux() -> str:
+    """The aircraft.json of whichever decoder this box has: the first whose file
+    already exists (its service is running), else the first whose binary is on
+    PATH (installed, not yet running), else dump1090-fa's path."""
+    import shutil
+    for _, path in LINUX_AIRCRAFT_JSON_CANDIDATES:
+        if Path(path).exists():
+            return path
+    for exe, path in LINUX_AIRCRAFT_JSON_CANDIDATES:
+        if shutil.which(exe):
+            return path
+    return LINUX_AIRCRAFT_JSON_CANDIDATES[1][1]
+
+
 if sys.platform != "win32":
-    # On Debian a packaged decoder (dump1090-fa / readsb) runs as a system
+    # On Linux a packaged decoder (readsb / dump1090-fa) runs as a system
     # service that owns the RTL-SDR and writes aircraft.json under /run; the app
     # reads that file and must never launch a second decoder to fight it over
     # the dongle. The default URL is also dropped: :8080 is a popular port for
     # other SDR web UIs, not a decoder, on a typical Linux radio box.
     DEFAULT_CONFIG.update({
         "adsb_json_url": "",
-        "adsb_json_file": "/run/dump1090-fa/aircraft.json",
+        "adsb_json_file": default_aircraft_json_linux(),
         "dump1090_autostart": False,
     })
 

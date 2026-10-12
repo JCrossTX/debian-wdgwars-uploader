@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
 import time
 from typing import Any
@@ -72,9 +73,23 @@ def _needs_no_reset(port: str) -> bool:
         return False
     try:
         from serial.tools import list_ports
+        # Resolve symlinks so a stable Linux path such as
+        # /dev/serial/by-id/usb-...-if00 matches pyserial's /dev/ttyACM0.
+        want = os.path.realpath(port)
         for p in list_ports.comports():
-            if p.device == port:
-                return (getattr(p, "vid", None), getattr(p, "pid", None)) in _NO_RESET_IDS
+            if p.device == port or os.path.realpath(p.device) == want:
+                if (getattr(p, "vid", None), getattr(p, "pid", None)) not in _NO_RESET_IDS:
+                    return False
+                # Espressif's 303a:1001 covers two very different USB stacks. The
+                # ESP32-S3 hardware USB-Serial-JTAG unit ("USB JTAG/serial debug
+                # unit") wires DTR/RTS into its reset logic, so those lines are held
+                # low. An Arduino/TinyUSB software CDC (Meshtastic on ESP32-S3
+                # native-USB boards) instead GATES its output on DTR, exactly like
+                # the nRF52 boards above: with DTR held low it never answers and the
+                # connect times out. pyserial surfaces the USB interface string
+                # ("TinyUSB CDC") in the port description, so use it to tell them apart.
+                blob = f"{p.description or ''} {getattr(p, 'interface', None) or ''}".lower()
+                return "tinyusb" not in blob
     except Exception:  # noqa: BLE001
         pass
     return False

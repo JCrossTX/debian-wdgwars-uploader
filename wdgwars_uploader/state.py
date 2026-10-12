@@ -34,7 +34,10 @@ class LiveState:
                           "device": "", "error": "", "aircraft": 0},
             "mesh": {"present": False, "port": "", "connected": False,
                      "name": "", "contacts": 0, "transport": "serial"},
+            "gps": {"enabled": False, "connected": False, "device": "", "mode": 0, "fix": None},
         }
+        # Effective receiver location {"lat","lon","source": "gps"|"manual"} or None.
+        self.receiver: dict[str, Any] | None = None
 
         # Two distinct notions:
         #  * _*_live  = what's visible right now (replaced every poll) -> feed/map
@@ -287,6 +290,7 @@ class LiveState:
                 "aircraft_seen_ts": self.aircraft_seen_ts,
                 "mesh_seen_ts": self.mesh_seen_ts,
                 "adsb_source_ok": self.adsb_source_ok,
+                "receiver": self.receiver,
                 "session_uploaded": self.session_uploaded,
                 "collected": {"aircraft": len(self._seen_aircraft), "mesh": len(self._seen_mesh)},
                 "upload_in_progress": self.upload_in_progress,

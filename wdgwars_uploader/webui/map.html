@@ -29,6 +29,7 @@ a.home{pointer-events:auto;color:var(--cyan);text-decoration:none;border:1px sol
 a.home:hover{background:rgba(0,229,255,.12)}
 /* plane icon */
 .plane{transform-origin:center;filter:drop-shadow(0 0 4px rgba(0,229,255,.7))}
+.rx-dot{width:18px;height:18px;border-radius:50%;border:3px solid #ffd166;background:rgba(255,209,102,.25);box-shadow:0 0 10px #ffd166}
 .plane svg{display:block}
 .node-dot{width:13px;height:13px;border-radius:50%;color:var(--mag);background:currentColor;
   box-shadow:0 0 10px currentColor;animation:pulse 2s infinite}
@@ -115,8 +116,21 @@ if (webgl && L.maplibreGL) {
 const acLayer = L.layerGroup().addTo(map);
 const mtLayer = L.layerGroup().addTo(map);
 const mcLayer = L.layerGroup().addTo(map);
-L.control.layers(null, {'✈ Aircraft':acLayer, '📡 Meshtastic':mtLayer, '🌐 MeshCore':mcLayer},
+const rxLayer = L.layerGroup().addTo(map);
+L.control.layers(null, {'✈ Aircraft':acLayer, '📡 Meshtastic':mtLayer, '🌐 MeshCore':mcLayer, '📍 Receiver':rxLayer},
   {collapsed:false, position:'topright'}).addTo(map);
+
+// The receiver itself: a GPS fix via gpsd, or the manual location from Settings.
+let rxMarker = null;
+function renderReceiver(rc){
+  if(!rc || rc.lat==null || rc.lon==null){ if(rxMarker){ rxLayer.removeLayer(rxMarker); rxMarker=null; } return; }
+  const label = `<div class="pp"><h3>Receiver</h3><div class="sub">${rc.source==='gps' ? 'GPS fix via gpsd' : 'manual location'}</div>
+    <div class="kv"><span class="k">Lat</span><span class="v">${(+rc.lat).toFixed(5)}</span>
+    <span class="k">Lon</span><span class="v">${(+rc.lon).toFixed(5)}</span></div></div>`;
+  if(rxMarker){ rxMarker.setLatLng([rc.lat, rc.lon]); rxMarker.setPopupContent(label); }
+  else{ rxMarker = L.marker([rc.lat, rc.lon], {icon:L.divIcon({className:'', iconSize:[18,18], iconAnchor:[9,9], html:'<div class="rx-dot"></div>'}), zIndexOffset:1000});
+    rxMarker.bindPopup(label); rxMarker.addTo(rxLayer); }
+}
 
 const acMarkers = {}, meshMarkers = {};
 let fitted = false;
@@ -184,6 +198,8 @@ async function tick(){
   const ac = (mp.aircraft||s.feed.aircraft||[]).filter(a=>a.lat!=null && a.lon!=null);
   const mt = (mp.meshtastic||[]).filter(m=>m.lat!=null && m.lon!=null);
   const mc = (mp.meshcore||[]).filter(m=>m.lat!=null && m.lon!=null);
+  const rc = s.receiver || null;
+  renderReceiver(rc);
   document.getElementById('c-ac').textContent = ac.length;
   document.getElementById('c-mt').textContent = mt.length;
   document.getElementById('c-mc').textContent = mc.length;
@@ -203,10 +219,12 @@ async function tick(){
     meshMarkers[id]._layer.removeLayer(meshMarkers[id]); delete meshMarkers[id]; } }
 
   if(!fitted){ const pts=[...ac.map(a=>[a.lat,a.lon]),...mt.map(m=>[m.lat,m.lon]),...mc.map(m=>[m.lat,m.lon])];
+    if(rc && rc.lat!=null) pts.push([rc.lat, rc.lon]);
     // No animation for the one-time auto-fit: there is nothing to animate from,
     // and it keeps the first view off the zoom-animation path entirely.
-    if(pts.length){ map.fitBounds(pts, {padding:[60,60], maxZoom:11, animate:false}); fitted=true;
-      repaintSoon(); } }
+    if(pts.length>1){ map.fitBounds(pts, {padding:[60,60], maxZoom:11, animate:false}); fitted=true;
+      repaintSoon(); }
+    else if(pts.length===1){ map.setView(pts[0], 10, {animate:false}); fitted=true; repaintSoon(); } }
 }
 tick(); setInterval(tick, 3000);
 </script>

@@ -102,19 +102,27 @@ def _hav_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * r * math.asin(min(1.0, math.sqrt(a)))
 
 
-def filter_outlier_positions(nodes: list[dict], max_km: float = 800.0) -> list[dict]:
-    """Null out mesh positions that are implausibly far from the local cluster
-    (a corrupt Position packet — e.g. lat OK but lon ~0 — puts a node in the
+def filter_outlier_positions(nodes: list[dict], max_km: float = 800.0,
+                             home: tuple[float, float] | None = None) -> list[dict]:
+    """Null out mesh positions that are implausibly far from the receiver (a
+    corrupt Position packet — e.g. lat OK but lon ~0 — puts a node in the
     Atlantic). The node stays in the list as 'heard' but loses its bad fix, so it
     won't skew the map or get uploaded with a garbage location. Keeps no-GPS
-    nodes untouched."""
+    nodes untouched.
+
+    ``home`` (the receiver's own location, e.g. a GPS fix) is the reference when
+    known; otherwise the cluster median stands in for it, which needs at least
+    three positioned nodes to be meaningful."""
     import statistics
     pts = [(n["lat"], n["lon"]) for n in nodes
            if n.get("lat") is not None and n.get("lon") is not None]
-    if len(pts) < 3:
+    if home is not None:
+        med_lat, med_lon = home
+    elif len(pts) < 3:
         return nodes
-    med_lat = statistics.median(p[0] for p in pts)
-    med_lon = statistics.median(p[1] for p in pts)
+    else:
+        med_lat = statistics.median(p[0] for p in pts)
+        med_lon = statistics.median(p[1] for p in pts)
     out: list[dict] = []
     for n in nodes:
         if n.get("lat") is None or n.get("lon") is None:
