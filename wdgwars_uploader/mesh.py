@@ -285,13 +285,50 @@ def tcp_host(port: str) -> tuple[str, int] | None:
         return (host or "localhost"), 4403
 
 
+def http_host(port: str) -> tuple[str, int, bool] | None:
+    """A mesh "port" of the form ``https:HOST[:PORT]`` (or ``http:...``) selects
+    meshtasticd's web API instead of its TCP API. Unlike the TCP API, which
+    serves a single client and force-closes the previous one whenever another
+    connects (the Meshtastic MUI, the web client, a phone), the web API has its
+    own queue, so the uploader can share the daemon. A stock meshtasticd serves
+    it over TLS on 443 with a self-signed certificate: ``https:localhost``.
+    Returns ``(host, port, tls)`` or None."""
+    p = (port or "").strip()
+    low = p.lower()
+    if low.startswith("https:"):
+        tls, rest = True, p[6:]
+    elif low.startswith("http:"):
+        tls, rest = False, p[5:]
+    else:
+        return None
+    rest = rest.lstrip("/")
+    host, _, num = rest.partition(":")
+    from .mesh_http import DEFAULT_HTTP_PORT, DEFAULT_HTTPS_PORT
+    default = DEFAULT_HTTPS_PORT if tls else DEFAULT_HTTP_PORT
+    try:
+        return (host or "localhost"), int(num or default), tls
+    except ValueError:
+        return (host or "localhost"), default, tls
+
+
+def network_port(port: str) -> bool:
+    """True for a ``tcp:`` / ``https:`` / ``http:`` mesh port - a daemon reached
+    over the network, where none of the serial wake/reset workarounds apply."""
+    return tcp_host(port) is not None or http_host(port) is not None
+
+
 def open_meshtastic_iface(port: str):
     """Open a Meshtastic interface for ``port``: the TCP API for ``tcp:...``
-    ports, a serial companion otherwise."""
+    ports, the web API for ``https:...`` / ``http:...`` ports, a serial
+    companion otherwise."""
     tcp = tcp_host(port)
     if tcp:
         from meshtastic.tcp_interface import TCPInterface
         return TCPInterface(hostname=tcp[0], portNumber=tcp[1])
+    web = http_host(port)
+    if web:
+        from .mesh_http import HTTPInterface
+        return HTTPInterface(host=web[0], port=web[1], tls=web[2])
     from meshtastic.serial_interface import SerialInterface
     return SerialInterface(devPath=port)
 

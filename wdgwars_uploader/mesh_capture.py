@@ -197,6 +197,19 @@ class MeshStore:
                     self._nodes.pop(x, None)
 
 
+def _meshtastic_link_alive(iface) -> bool:
+    """False once the meshtastic library has given up on the radio: it cleared its
+    connected flag, or its stream reader thread has exited (meshtasticd restarted,
+    USB unplugged). Belt and braces next to the pubsub ``connection.lost`` event."""
+    ev = getattr(iface, "isConnected", None)
+    if ev is not None and hasattr(ev, "is_set") and not ev.is_set():
+        return False
+    t = getattr(iface, "_rxThread", None)
+    if t is not None and hasattr(t, "is_alive") and not t.is_alive():
+        return False
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Meshtastic worker — persistent SerialInterface + live receive subscription.
 # ---------------------------------------------------------------------------
@@ -235,12 +248,12 @@ class MeshtasticWorker(threading.Thread):
         meshtastic connect can deadlock un-interruptibly on a wedged port, which must
         not block the worker forever (it retries instead).
 
-        A ``tcp:HOST[:PORT]`` port talks to the Meshtastic TCP API (e.g. a local
-        meshtasticd) instead of a serial device; none of the serial wake/reset
-        workarounds apply there.
+        A ``tcp:HOST[:PORT]`` port talks to the Meshtastic TCP API and an
+        ``https:HOST[:PORT]`` port to meshtasticd's web API (see mesh_http.py for
+        why that one is preferred on a box that also runs the MUI); none of the
+        serial wake/reset workarounds apply to either.
         """
-        tcp = mesh.tcp_host(self.port)
-        if tcp is not None:
+        if mesh.network_port(self.port):
             box: dict[str, Any] = {}
 
             def _open_tcp():
@@ -338,23 +351,39 @@ class MeshtasticWorker(threading.Thread):
             except Exception:
                 pass
 
+        # The library never raises into this thread when the radio goes away: its
+        # reader thread just exits (after one silent TCP reconnect attempt) and it
+        # announces the loss on pubsub. Without watching for that, this loop keeps
+        # re-sweeping a frozen in-memory node table and reports "connected" on a
+        # dead socket for ever (seen after every meshtasticd restart).
+        lost = threading.Event()
+
+        def on_lost(interface=None):   # fires on the lib's publishing thread
+            if interface is None or interface is iface:
+                lost.set()
+
         sub = pub.subscribe(on_recv, "meshtastic.receive")
+        sub_lost = pub.subscribe(on_lost, "meshtastic.connection.lost")
         try:
             self._capture_all(iface)          # seed from the device's current DB
             last_advert = time.time()
             while not self._stop.is_set():
-                self._stop.wait(15)
+                if lost.wait(15):
+                    raise ConnectionError("radio link lost")
                 if self._stop.is_set():
                     break
+                if not _meshtastic_link_alive(iface):
+                    raise ConnectionError("radio link lost (reader thread gone)")
                 self._capture_all(iface)      # re-sweep the merged DB (cheap, in-memory)
                 if self.advert_minutes and (time.time() - last_advert) >= self.advert_minutes * 60:
                     mesh._meshtastic_announce(iface)
                     last_advert = time.time()
         finally:
-            try:
-                pub.unsubscribe(sub)
-            except Exception:
-                pass
+            for s in (sub, sub_lost):
+                try:
+                    pub.unsubscribe(s)
+                except Exception:
+                    pass
             try:
                 iface.close()
             except Exception:

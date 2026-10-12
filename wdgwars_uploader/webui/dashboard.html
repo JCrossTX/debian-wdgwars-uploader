@@ -793,7 +793,7 @@ function addDevRow(d){
   d=d||{port:'auto',protocol:'meshcore',enabled:true};
   const row=document.createElement('div'); row.className='devrow';
   row.innerHTML=`<label class="switch" style="margin:0" title="enabled"><input type="checkbox" class="d-en" ${d.enabled!==false?'checked':''}></label>
-    <input type="text" class="d-port" value="${d.port||'auto'}" placeholder="auto / COM13">
+    <input type="text" class="d-port" value="${d.port||'auto'}" placeholder="auto / COM13 / https:localhost">
     <select class="d-proto"><option value="meshcore"${(d.protocol||'meshcore')==='meshcore'?' selected':''}>MeshCore</option><option value="meshtastic"${d.protocol==='meshtastic'?' selected':''}>Meshtastic</option></select>
     <button class="btn ghost d-rm" type="button" title="remove">✕</button>`;
   row.querySelector('.d-rm').onclick=()=>row.remove();

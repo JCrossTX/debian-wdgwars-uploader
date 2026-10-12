@@ -8,7 +8,7 @@ This is a **Debian Linux port** of [RocketGod's wdgwars-uploader](https://github
 
 - **Config** lives in `~/.config/wdgwars-uploader/config.json` on Linux (`%APPDATA%\WDGWarsUploader\` on Windows, as upstream).
 - **ADS-B from the distro decoder**: on Linux the app reads a running [dump1090-fa](https://github.com/flightaware/dump1090)/readsb's `aircraft.json` (default `/run/dump1090-fa/aircraft.json`) and never downloads or launches a decoder — the system service owns the SDR. Any aircraft.json URL or file path works via Settings.
-- **Mesh over TCP**: a mesh device port of `tcp:HOST[:PORT]` (e.g. `tcp:localhost`) reads a local [meshtasticd](https://meshtastic.org/docs/software/linux-native/) through the Meshtastic TCP API — no USB radio needed. Serial (`/dev/ttyUSB0`, `/dev/ttyACM0`) and BLE work as upstream.
+- **Mesh over the network**: a mesh device port of `https:HOST[:PORT]` (e.g. `https:localhost`) reads a local [meshtasticd](https://meshtastic.org/docs/software/linux-native/) through its web API, and `tcp:HOST[:PORT]` through the Meshtastic TCP API — no USB radio needed. Prefer `https:` on a box that also runs the Meshtastic MUI, the web client or a phone over TCP: the TCP API serves one client at a time and force-closes the previous one, while the web API has its own queue. Serial (`/dev/ttyUSB0`, `/dev/ttyACM0`) and BLE work as upstream.
 - **RTL-SDR detection** via sysfs USB IDs instead of Windows PnP; no Zadig/WinUSB step exists on Linux.
 - **Tray via AppIndicator** (`python3-gi` + ayatana libs). Without a tray host the app runs headless — the dashboard at `http://127.0.0.1:8787/` does everything, including Quit, and SIGTERM still persists the un-uploaded queue.
 - **Start at login** is a systemd *user* service (`~/.config/systemd/user/wdgwars-uploader.service`) with `Restart=on-failure`, which also replaces the upstream Windows watchdog sidecar.
@@ -35,7 +35,7 @@ python3 -m venv --system-site-packages .venv
 
 Then open `http://127.0.0.1:8787/`, paste your WDGWars API key into Settings, and enable "Start at login" if you want the systemd service installed.
 
-Running meshtasticd on the same box? Add a mesh device with port `tcp:localhost` in Settings. Leave the Meshtastic hop-limit setting at 0 for a TCP node unless you want the app writing LoRa config into your daemon (which reboots the radio).
+Running meshtasticd on the same box? Add a mesh device with port `https:localhost` in Settings (its web API, TLS on 443 with a self-signed certificate; `tcp:localhost` also works but takes the daemon's only TCP client slot). Leave the Meshtastic hop-limit setting at 0 for a daemon node unless you want the app writing LoRa config into your daemon (which reboots the radio).
 
 ## 🛠️ Notes
 
