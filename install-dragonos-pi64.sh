@@ -10,7 +10,7 @@
 #    and cannot open a dongle ("SDR type 'rtlsdr' not recognized");
 #    dump1090-fa is not packaged at all.
 #  * blacklists the DVB-T kernel driver so it stops claiming RTL2832U dongles
-#  * points readsb at gpsd (gpsd_in) for the receiver position, if gpsd is installed
+#  * points readsb at gpsd (gpsd_in); makes gpsd re-add plugged-in receivers on restart
 #  * installs python3-venv + the AppIndicator tray libs, builds .venv
 #
 # Re-running is safe: every step is skipped or refreshed as appropriate.
@@ -85,6 +85,26 @@ if command -v gpsd >/dev/null; then
     sudo sed -i 's/^NET_OPTIONS="\(.*\)"$/NET_OPTIONS="\1 --net-connector 127.0.0.1,2947,gpsd_in"/' /etc/default/readsb
     sudo systemctl restart readsb
   fi
+  # gpsd only learns of USB receivers from udev at plug-in time, so a gpsd
+  # restart (every gpsd package upgrade does one) leaves it with no device until
+  # the dongle is replugged. This drop-in re-adds the receivers already present
+  # (the /dev/gps* symlinks gpsd's own udev rules create) on every gpsd start.
+  HOOK=/etc/systemd/system/gpsd.service.d/readd-gps.conf
+  if [ ! -f "$HOOK" ]; then
+    sudo mkdir -p "$(dirname "$HOOK")"
+    sudo tee "$HOOK" >/dev/null <<'UNIT'
+# Re-add GPS receivers that are already plugged in whenever gpsd (re)starts.
+# gpsd only learns of USB receivers from udev at plug-in time (gpsdctl@.service),
+# so a gpsd restart (a package upgrade, for instance) would otherwise leave it
+# with no device until the dongle is replugged. /dev/gps* are the symlinks
+# gpsd's own udev rules create for recognised receivers; honours USBAUTO.
+[Service]
+ExecStartPost=-/bin/sh -c '[ "$USBAUTO" = true ] || exit 0; for d in /dev/gps[0-9]*; do [ -e "$d" ] && /usr/sbin/gpsdctl add "$(readlink -f "$d")"; done; exit 0'
+UNIT
+    sudo systemctl daemon-reload
+    sudo systemctl restart gpsd
+    echo "    gpsd: restart hook installed ($HOOK)"
+  fi
   echo "    readsb takes its position from gpsd (127.0.0.1:2947); the uploader reads gpsd too"
 else
   echo "    gpsd not installed: either 'sudo apt install gpsd' and re-run, or set --lat/--lon in /etc/default/readsb"
@@ -116,7 +136,7 @@ cat <<MSG
 Done. Dashboard: http://127.0.0.1:8787/
   * paste your WDGWars API key in Settings
   * add your mesh radio there (port auto or /dev/serial/by-id/..., protocol MeshCore/Meshtastic)
-  * receiver position: --lat/--lon in RECEIVER_OPTIONS of /etc/default/readsb,
-    then: sudo systemctl restart readsb
+  * receiver position: automatic from a USB GPS via gpsd; without one, put
+    --lat/--lon in RECEIVER_OPTIONS of /etc/default/readsb and restart readsb
   * run by hand:  .venv/bin/python run_app.py   (--detect / --once / --check)
 MSG
